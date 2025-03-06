@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hopple"
+version = "0.1.0"
+description = "Hopple - AI-powered project management system"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [
+    {name = "Hopple Team"}
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "fastapi>=0.104.0",
+    "uvicorn>=0.24.0",
+    "pydantic>=2.4.2",
+    "python-dotenv>=1.0.0",
+    "sqlalchemy>=2.0.22",
+    "alembic>=1.12.0",
+    "psycopg2-binary>=2.9.9",
+    "langchain>=0.0.300",
+    "langchain-community>=0.0.1",
+    "ollama>=0.1.5",
+    "loguru>=0.7.2",
+    "pyyaml>=6.0.1",
+    "tenacity>=8.2.3",
+    "asyncpg>=0.28.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.3",
+    "pytest-cov>=4.1.0",
+    "pytest-asyncio>=0.21.0",
+    "httpx>=0.25.0",
+    "mypy>=1.6.1",
+    "types-pyyaml>=6.0.12.12",
+    "black>=23.10.1",
+    "flake8>=6.1.0",
+    "isort>=5.12.0",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/Sainirmit/hopple"
+"Bug Tracker" = "https://github.com/Sainirmit/hopple/issues"
+
+[tool.setuptools]
+packages = ["hopple"] 
