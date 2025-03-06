@@ -8,70 +8,81 @@ This module manages loading and accessing configuration from various sources:
 
 import os
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Set
 
 import yaml
-from pydantic import BaseSettings, Field, validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class DatabaseSettings(BaseSettings):
     """Database connection settings."""
     
-    DB_HOST: str = Field("localhost", env="HOPPLE_DB_HOST")
-    DB_PORT: int = Field(5432, env="HOPPLE_DB_PORT")
-    DB_USER: str = Field("postgres", env="HOPPLE_DB_USER")
-    DB_PASSWORD: str = Field(..., env="HOPPLE_DB_PASSWORD")
-    DB_NAME: str = Field("hopple", env="HOPPLE_DB_NAME")
+    DB_HOST: str = Field(default="localhost")
+    DB_PORT: int = Field(default=5432)
+    DB_USER: str = Field(default="postgres")
+    DB_PASSWORD: str = Field(default="postgres")
+    DB_NAME: str = Field(default="hopple")
     
     @property
     def connection_string(self) -> str:
         """Get the database connection string."""
         return f"postgresql://{self.DB_USER}:{self.DB_PASSWORD}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
     
-    class Config:
-        env_file = ".env"
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_prefix="HOPPLE_",
+        extra="allow"
+    )
 
 
 class LLMSettings(BaseSettings):
     """LLM configuration settings."""
     
-    LLM_PROVIDER: str = Field("ollama", env="HOPPLE_LLM_PROVIDER")
-    LLM_MODEL: str = Field("mistral:7b", env="HOPPLE_LLM_MODEL")
-    LLM_API_KEY: Optional[str] = Field(None, env="HOPPLE_LLM_API_KEY")
-    LLM_BASE_URL: str = Field("http://localhost:11434", env="HOPPLE_LLM_BASE_URL")
-    LLM_TEMPERATURE: float = Field(0.7, env="HOPPLE_LLM_TEMPERATURE")
+    LLM_PROVIDER: str = Field(default="ollama")
+    LLM_MODEL: str = Field(default="mistral:7b")
+    LLM_API_KEY: Optional[str] = Field(default=None)
+    LLM_BASE_URL: str = Field(default="http://localhost:11434")
+    LLM_TEMPERATURE: float = Field(default=0.7)
     
-    class Config:
-        env_file = ".env"
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_prefix="HOPPLE_",
+        extra="allow"
+    )
 
 
 class APISettings(BaseSettings):
     """API server settings."""
     
-    API_HOST: str = Field("0.0.0.0", env="HOPPLE_API_HOST")
-    API_PORT: int = Field(8000, env="HOPPLE_API_PORT")
-    API_DEBUG: bool = Field(False, env="HOPPLE_API_DEBUG")
-    API_RELOAD: bool = Field(False, env="HOPPLE_API_RELOAD")
+    API_HOST: str = Field(default="0.0.0.0")
+    API_PORT: int = Field(default=8000)
+    API_DEBUG: bool = Field(default=False)
+    API_RELOAD: bool = Field(default=False)
     
-    class Config:
-        env_file = ".env"
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_prefix="HOPPLE_",
+        extra="allow"
+    )
 
 
 class Settings(BaseSettings):
     """Main settings container."""
     
-    ENV: str = Field("development", env="HOPPLE_ENV")
-    DEBUG: bool = Field(False, env="HOPPLE_DEBUG")
-    LOG_LEVEL: str = Field("INFO", env="HOPPLE_LOG_LEVEL")
+    ENV: str = Field(default="development")
+    DEBUG: bool = Field(default=False)
+    LOG_LEVEL: str = Field(default="INFO")
     
-    database: DatabaseSettings = DatabaseSettings()
-    llm: LLMSettings = LLMSettings()
-    api: APISettings = APISettings()
+    database: DatabaseSettings = Field(default_factory=DatabaseSettings)
+    llm: LLMSettings = Field(default_factory=LLMSettings)
+    api: APISettings = Field(default_factory=APISettings)
     
-    @validator("ENV")
+    @field_validator("ENV")
+    @classmethod
     def validate_env(cls, v: str) -> str:
         """Validate environment name."""
-        allowed = {"development", "testing", "production"}
+        allowed: Set[str] = {"development", "testing", "production"}
         if v not in allowed:
             raise ValueError(f"ENV must be one of {allowed}")
         return v
@@ -85,10 +96,13 @@ class Settings(BaseSettings):
         with open(config_file, "r") as f:
             config_data = yaml.safe_load(f)
         
-        return cls.parse_obj(config_data)
+        return cls.model_validate(config_data)
     
-    class Config:
-        env_file = ".env"
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_prefix="HOPPLE_",
+        extra="allow"
+    )
 
 
 # Create a singleton instance

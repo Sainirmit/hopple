@@ -5,11 +5,13 @@ Agent model for Hopple.
 import uuid
 from datetime import datetime
 from enum import Enum
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Union, cast
+from decimal import Decimal
 
 from sqlalchemy import Column, String, Text, DateTime, Boolean, ForeignKey, Integer
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
+from sqlalchemy.sql.elements import ColumnElement
 
 from hopple.database.db_config import Base
 
@@ -68,7 +70,7 @@ class Agent(Base):
         "Agent",
         backref="parent_agent",
         remote_side=[id],
-        cascade="all, delete-orphan"
+        cascade="all"
     )
     
     def __repr__(self) -> str:
@@ -80,7 +82,8 @@ class Agent(Base):
         """Calculate the success rate of the agent."""
         if self.task_count == 0:
             return 0.0
-        return (self.success_count / self.task_count) * 100
+        result = (self.success_count / self.task_count) * 100
+        return float(result)
     
     def update_status(self, status: AgentStatus) -> None:
         """Update the agent's status."""
@@ -92,16 +95,21 @@ class Agent(Base):
     
     def update_metrics(self, success: bool = True) -> None:
         """Update the agent's performance metrics."""
-        self.task_count += 1
+        task_count_val = self.task_count + 1
+        self.task_count = task_count_val
+        
         if success:
-            self.success_count += 1
+            success_count_val = self.success_count + 1
+            self.success_count = success_count_val
         else:
-            self.error_count += 1
+            error_count_val = self.error_count + 1
+            self.error_count = error_count_val
     
     def update_cache(self, key: str, value: Any) -> None:
         """Update the agent's cache with a key-value pair."""
         if not self.cache:
-            self.cache = {}
+            cache_dict: Dict[str, Any] = {}
+            self.cache = cache_dict
         self.cache[key] = value
     
     def get_cache(self, key: str, default: Any = None) -> Any:
@@ -112,4 +120,5 @@ class Agent(Base):
     
     def clear_cache(self) -> None:
         """Clear the agent's cache."""
-        self.cache = {}
+        cache_dict: Dict[str, Any] = {}
+        self.cache = cache_dict

@@ -5,13 +5,13 @@ Base agent class for all AI agents in Hopple.
 import uuid
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Dict, Any, List, Optional, Tuple, Union
+from typing import Dict, Any, List, Optional, Tuple, Union, cast
 
 from langchain.schema import BaseMessage, HumanMessage, AIMessage, SystemMessage
 from loguru import logger
 from sqlalchemy.orm import Session
 
-from hopple.database.models.agent import Agent as AgentModel, AgentStatus, AgentType
+from hopple.database.models import Agent as AgentModel, AgentStatus, AgentType
 from hopple.database.db_config import db_session
 from hopple.config.config import get_settings
 
@@ -91,7 +91,7 @@ class BaseAgent(ABC):
             content: The content of the message
         """
         if role == "human":
-            message = HumanMessage(content=content)
+            message: BaseMessage = HumanMessage(content=content)
         elif role == "ai":
             message = AIMessage(content=content)
         elif role == "system":

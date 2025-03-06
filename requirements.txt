@@ -9,6 +9,7 @@ psycopg2-binary>=2.9.9
 
 # LLM integration
 langchain>=0.0.300
+langchain-community>=0.0.1
 ollama>=0.1.5
 
 # Utilities

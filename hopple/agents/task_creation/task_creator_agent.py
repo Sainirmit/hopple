@@ -6,14 +6,17 @@ This agent is responsible for creating tasks based on project requirements.
 
 import uuid
 from typing import Dict, Any, List, Optional, Tuple
+import json
 
 from loguru import logger
 import ollama
-from langchain.llms import Ollama
+from langchain_community.llms import Ollama
+from sqlalchemy.orm import Session
 
 from hopple.agents.base.base_agent import BaseAgent
-from hopple.database.models.agent import AgentType, AgentStatus
-from hopple.database.models.task import Task, TaskPriority, TaskStatus
+from hopple.database.models import Agent as AgentModel, AgentType, AgentStatus
+from hopple.database.models import Task, TaskPriority, TaskStatus, TaskDependency
+from hopple.database.models import Project
 from hopple.database.db_config import db_session
 from hopple.config.config import get_settings
 
@@ -61,6 +64,9 @@ class TaskCreatorAgent(BaseAgent):
             temperature=settings.llm.LLM_TEMPERATURE
         )
         
+        # Initialize conversation history
+        self.messages = []
+        
         # System prompt for the agent
         self.system_prompt = """
         You are Hopple's Task Creator Agent, responsible for analyzing project requirements 
@@ -80,63 +86,166 @@ class TaskCreatorAgent(BaseAgent):
         
         logger.info(f"Task Creator Agent initialized: {self.name}")
     
-    async def run(self, project_id: uuid.UUID, requirements: str) -> List[Dict[str, Any]]:
+    async def run(self, project_id: uuid.UUID, requirements: str, session: Optional[Session] = None) -> List[Dict[str, Any]]:
         """
         Run the Task Creator Agent to generate tasks from project requirements.
         
         Args:
             project_id: The ID of the project
             requirements: The project requirements
+            session: Optional SQLAlchemy session to use
             
         Returns:
             A list of created tasks
         """
         logger.info(f"Task Creator Agent running for project: {project_id}")
         
-        # In a real implementation, we would use the LLM to analyze requirements
-        # and generate tasks. For now, we'll return placeholder tasks.
-        
         # Add the requirements to messages
-        self.add_message("human", f"Create tasks for the following project requirements: {requirements}")
+        prompt = f"""
+        Given the following project requirements, create a list of well-defined tasks.
+        For each task, provide:
+        1. A clear, concise title
+        2. A detailed description
+        3. Estimated effort in hours
+        4. Priority level (LOW, MEDIUM, HIGH, CRITICAL)
+        5. Required skills
+        6. Dependencies on other tasks (if any)
+
+        Requirements:
+        {requirements}
+
+        Format your response as a JSON array of tasks, where each task has the following structure:
+        {{
+            "title": "string",
+            "description": "string",
+            "estimated_effort": number,
+            "priority": "LOW|MEDIUM|HIGH|CRITICAL",
+            "skills": ["skill1", "skill2", ...],
+            "dependencies": ["task_title1", "task_title2", ...]
+        }}
+
+        Ensure tasks are:
+        - Specific and actionable
+        - Properly sized (not too big or too small)
+        - Logically ordered with clear dependencies
+        - Aligned with project goals
+        """
         
-        # Call the LLM (this would be implemented to parse requirements into tasks)
-        tasks_data = [
-            {
-                "title": "Initialize project repository",
-                "description": "Set up the initial project structure and repository",
-                "estimated_effort": 2,
-                "priority": TaskPriority.HIGH,
-                "skills": ["git", "devops"]
-            },
-            {
-                "title": "Define database schema",
-                "description": "Create the database schema based on requirements",
-                "estimated_effort": 4,
-                "priority": TaskPriority.HIGH,
-                "skills": ["database", "sql"]
-            },
-            {
-                "title": "Implement user authentication",
-                "description": "Create user authentication and authorization system",
-                "estimated_effort": 8,
-                "priority": TaskPriority.MEDIUM,
-                "skills": ["security", "backend"]
-            }
-        ]
+        self.add_message("human", prompt)
         
-        # In a real implementation, we would create these tasks in the database
-        # For now, we'll just return the task data
+        # Call the LLM to analyze requirements and generate tasks
+        try:
+            response = await self.llm.agenerate([self.get_messages()])
+            tasks_data = json.loads(response.generations[0][0].text)
+            
+            # Validate and clean up the response
+            validated_tasks = []
+            for task_data in tasks_data:
+                try:
+                    # Ensure required fields are present
+                    title = task_data["title"]
+                    description = task_data["description"]
+                    estimated_effort = int(task_data["estimated_effort"])
+                    priority = TaskPriority(task_data["priority"].lower())
+                    skills = task_data.get("skills", [])
+                    dependencies = task_data.get("dependencies", [])
+                    
+                    validated_tasks.append({
+                        "title": title,
+                        "description": description,
+                        "estimated_effort": estimated_effort,
+                        "priority": priority,
+                        "skills": skills,
+                        "dependencies": dependencies
+                    })
+                except (KeyError, ValueError, TypeError) as e:
+                    logger.warning(f"Invalid task data: {task_data}. Error: {str(e)}")
+                    continue
+            
+            # Store tasks in the database
+            created_tasks = []
+            if session is None:
+                session = db_session()
+            
+            # Check if project exists
+            project = session.query(Project).filter(Project.id == project_id).first()
+            if not project:
+                logger.error(f"Project {project_id} not found")
+                raise ValueError(f"Project {project_id} not found")
+
+            # Create tasks first
+            task_map = {}  # Map of title to task object for dependency resolution
+            for task_data in validated_tasks:
+                task = Task(
+                    title=task_data["title"],
+                    description=task_data["description"],
+                    estimated_effort=task_data["estimated_effort"],
+                    priority=task_data["priority"],
+                    project_id=project_id,
+                    created_by_agent_id=self.db_id,
+                    task_metadata={
+                        "skills": task_data["skills"],
+                        "original_dependencies": task_data["dependencies"]
+                    }
+                )
+                session.add(task)
+                session.flush()  # Flush to get the task ID
+                task_map[task_data["title"]] = task
+                created_tasks.append(task_data)
+            
+            # Now create task dependencies
+            for task_data in validated_tasks:
+                task = task_map[task_data["title"]]
+                for dep_title in task_data["dependencies"]:
+                    if dep_title in task_map:
+                        dep_task = task_map[dep_title]
+                        # Create dependency relationship
+                        task_dependency = TaskDependency(
+                            task_id=task.id,
+                            depends_on_id=dep_task.id
+                        )
+                        session.add(task_dependency)
+            
+            session.commit()
+            
+            # Generate summary for the conversation
+            tasks_summary = "\n".join([
+                f"- {task['title']}: {task['description']} "
+                f"(Priority: {task['priority']}, Effort: {task['estimated_effort']}h)"
+                for task in created_tasks
+            ])
+            response = f"I've analyzed the requirements and created the following tasks:\n\n{tasks_summary}"
+            
+            self.add_message("ai", response)
+            
+            # Update metrics
+            self.update_metrics(success=True)
+            
+            # After creating tasks, put the agent to sleep
+            self.sleep()
+            
+            return created_tasks
+            
+        except Exception as e:
+            logger.error(f"Error creating tasks: {str(e)}")
+            self.update_metrics(success=False)
+            raise 
+
+    def add_message(self, role: str, content: str) -> None:
+        """
+        Add a message to the conversation history.
         
-        # Simulate task creation response
-        tasks_summary = "\n".join([f"- {task['title']}: {task['description']}" for task in tasks_data])
-        response = f"I've analyzed the requirements and created the following tasks:\n\n{tasks_summary}"
+        Args:
+            role: The role of the message sender (system, human, or ai)
+            content: The content of the message
+        """
+        self.messages.append({"role": role, "content": content})
         
-        self.add_message("ai", response)
+    def get_messages(self) -> List[Dict[str, str]]:
+        """
+        Get the conversation history.
         
-        # Update metrics
-        self.update_metrics(success=True)
-        
-        # After creating tasks, put the agent to sleep
-        self.sleep()
-        
-        return tasks_data 
+        Returns:
+            A list of messages in the conversation
+        """
+        return self.messages 

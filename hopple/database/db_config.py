@@ -4,7 +4,7 @@ This module sets up the database connection and sessions.
 """
 
 from contextlib import contextmanager
-from typing import Generator, Any
+from typing import Generator, Any, Type, TypeVar, cast
 
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
@@ -25,6 +25,8 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 # Base class for all models
 Base = declarative_base()
+# Type alias for mypy
+DeclarativeBase = Type[Base]
 
 
 def get_db() -> Generator[Session, None, None]:

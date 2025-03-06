@@ -5,11 +5,12 @@ Task model for Hopple.
 import uuid
 from datetime import datetime
 from enum import Enum
-from typing import Optional, List
+from typing import Optional, List, Union, cast
 
 from sqlalchemy import Column, String, Text, DateTime, Boolean, ForeignKey, Integer, Enum as SQLAEnum
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
+from sqlalchemy.sql.elements import ColumnElement
 
 from hopple.database.db_config import Base
 
@@ -28,9 +29,9 @@ class TaskStatus(str, Enum):
     
     TODO = "todo"
     IN_PROGRESS = "in_progress"
-    REVIEW = "review"
-    DONE = "done"
     BLOCKED = "blocked"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
 
 
 class Task(Base):
@@ -41,15 +42,15 @@ class Task(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
-    priority = Column(SQLAEnum(TaskPriority), default=TaskPriority.MEDIUM)
-    status = Column(SQLAEnum(TaskStatus), default=TaskStatus.TODO)
+    priority: Column = Column(SQLAEnum(TaskPriority), default=TaskPriority.MEDIUM)
+    status: Column = Column(SQLAEnum(TaskStatus), default=TaskStatus.TODO)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     due_date = Column(DateTime, nullable=True)
     estimated_effort = Column(Integer, default=0)  # In hours
     actual_effort = Column(Integer, default=0)  # In hours
     is_completed = Column(Boolean, default=False)
-    metadata = Column(JSONB, default=dict)
+    task_metadata = Column(JSONB, default=dict)
     
     # Foreign keys
     project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id"), nullable=False)
@@ -82,7 +83,8 @@ class Task(Base):
         """Check if the task is overdue."""
         if not self.due_date:
             return False
-        return self.due_date < datetime.utcnow() and not self.is_completed
+        result = self.due_date < datetime.utcnow() and not self.is_completed
+        return bool(result)
     
     @property
     def days_until_due(self) -> Optional[int]:
@@ -96,17 +98,19 @@ class Task(Base):
         """Get the variance between estimated and actual effort."""
         if self.estimated_effort == 0:
             return 0
-        return self.actual_effort - self.estimated_effort
+        result = self.actual_effort - self.estimated_effort
+        return cast(int, result)
 
 
 class TaskDependency(Base):
-    """Model for task dependencies."""
+    """Model representing dependencies between tasks."""
     
     __tablename__ = "task_dependencies"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     task_id = Column(UUID(as_uuid=True), ForeignKey("tasks.id"), nullable=False)
     depends_on_id = Column(UUID(as_uuid=True), ForeignKey("tasks.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
     
     # Relationships
     task = relationship("Task", foreign_keys=[task_id], back_populates="dependencies")
