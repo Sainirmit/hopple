@@ -5,12 +5,13 @@ This agent is responsible for creating tasks based on project requirements.
 """
 
 import uuid
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple, cast
 import json
 
 from loguru import logger
 import ollama
 from langchain_community.llms import Ollama
+from langchain.schema import BaseMessage, HumanMessage, AIMessage, SystemMessage
 from sqlalchemy.orm import Session
 
 from hopple.agents.base.base_agent import BaseAgent
@@ -65,7 +66,7 @@ class TaskCreatorAgent(BaseAgent):
         )
         
         # Initialize conversation history
-        self.messages = []
+        self.messages: List[Dict[str, str]] = []
         
         # System prompt for the agent
         self.system_prompt = """
@@ -163,73 +164,96 @@ class TaskCreatorAgent(BaseAgent):
                     continue
             
             # Store tasks in the database
-            created_tasks = []
-            if session is None:
-                session = db_session()
-            
-            # Check if project exists
-            project = session.query(Project).filter(Project.id == project_id).first()
-            if not project:
-                logger.error(f"Project {project_id} not found")
-                raise ValueError(f"Project {project_id} not found")
-
-            # Create tasks first
-            task_map = {}  # Map of title to task object for dependency resolution
-            for task_data in validated_tasks:
-                task = Task(
-                    title=task_data["title"],
-                    description=task_data["description"],
-                    estimated_effort=task_data["estimated_effort"],
-                    priority=task_data["priority"],
-                    project_id=project_id,
-                    created_by_agent_id=self.db_id,
-                    task_metadata={
-                        "skills": task_data["skills"],
-                        "original_dependencies": task_data["dependencies"]
-                    }
-                )
-                session.add(task)
-                session.flush()  # Flush to get the task ID
-                task_map[task_data["title"]] = task
-                created_tasks.append(task_data)
-            
-            # Now create task dependencies
-            for task_data in validated_tasks:
-                task = task_map[task_data["title"]]
-                for dep_title in task_data["dependencies"]:
-                    if dep_title in task_map:
-                        dep_task = task_map[dep_title]
-                        # Create dependency relationship
-                        task_dependency = TaskDependency(
-                            task_id=task.id,
-                            depends_on_id=dep_task.id
-                        )
-                        session.add(task_dependency)
-            
-            session.commit()
-            
-            # Generate summary for the conversation
-            tasks_summary = "\n".join([
-                f"- {task['title']}: {task['description']} "
-                f"(Priority: {task['priority']}, Effort: {task['estimated_effort']}h)"
-                for task in created_tasks
-            ])
-            response = f"I've analyzed the requirements and created the following tasks:\n\n{tasks_summary}"
-            
-            self.add_message("ai", response)
-            
-            # Update metrics
-            self.update_metrics(success=True)
-            
-            # After creating tasks, put the agent to sleep
-            self.sleep()
-            
-            return created_tasks
+            created_tasks: List[Dict[str, Any]] = []
+            db_sess = session
+            if db_sess is None:
+                with db_session() as db_sess:
+                    return self._create_tasks_in_db(db_sess, project_id, validated_tasks, created_tasks)
+            else:
+                return self._create_tasks_in_db(db_sess, project_id, validated_tasks, created_tasks)
             
         except Exception as e:
             logger.error(f"Error creating tasks: {str(e)}")
             self.update_metrics(success=False)
             raise 
+
+    def _create_tasks_in_db(
+        self, 
+        session: Session, 
+        project_id: uuid.UUID, 
+        validated_tasks: List[Dict[str, Any]], 
+        created_tasks: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """
+        Create tasks in the database.
+        
+        Args:
+            session: SQLAlchemy session
+            project_id: The ID of the project
+            validated_tasks: List of validated task data
+            created_tasks: List to store created tasks
+            
+        Returns:
+            List of created tasks
+        """
+        # Check if project exists
+        project = session.query(Project).filter(Project.id == project_id).first()
+        if not project:
+            logger.error(f"Project {project_id} not found")
+            raise ValueError(f"Project {project_id} not found")
+
+        # Create tasks first
+        task_map = {}  # Map of title to task object for dependency resolution
+        for task_data in validated_tasks:
+            task = Task(
+                title=task_data["title"],
+                description=task_data["description"],
+                estimated_effort=task_data["estimated_effort"],
+                priority=task_data["priority"],
+                project_id=project_id,
+                created_by_agent_id=self.db_id,
+                task_metadata={
+                    "skills": task_data["skills"],
+                    "original_dependencies": task_data["dependencies"]
+                }
+            )
+            session.add(task)
+            session.flush()  # Flush to get the task ID
+            task_map[task_data["title"]] = task
+            created_tasks.append(task_data)
+        
+        # Now create task dependencies
+        for task_data in validated_tasks:
+            task = task_map[task_data["title"]]
+            for dep_title in task_data["dependencies"]:
+                if dep_title in task_map:
+                    dep_task = task_map[dep_title]
+                    # Create dependency relationship
+                    task_dependency = TaskDependency(
+                        task_id=task.id,
+                        depends_on_id=dep_task.id
+                    )
+                    session.add(task_dependency)
+        
+        session.commit()
+        
+        # Generate summary for the conversation
+        tasks_summary = "\n".join([
+            f"- {task['title']}: {task['description']} "
+            f"(Priority: {task['priority']}, Effort: {task['estimated_effort']}h)"
+            for task in created_tasks
+        ])
+        response = f"I've analyzed the requirements and created the following tasks:\n\n{tasks_summary}"
+        
+        self.add_message("ai", response)
+        
+        # Update metrics
+        self.update_metrics(success=True)
+        
+        # After creating tasks, put the agent to sleep
+        self.sleep()
+        
+        return created_tasks
 
     def add_message(self, role: str, content: str) -> None:
         """
