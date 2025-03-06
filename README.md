@@ -29,7 +29,7 @@ Hopple uses a multi-agent architecture:
 1. Clone the repository
 
 ```bash
-git clone https://github.com/yourusername/hopple.git
+git clone https://github.com/sainirmit/hopple.git
 cd hopple
 ```
 

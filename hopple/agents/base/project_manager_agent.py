@@ -198,9 +198,9 @@ class ProjectManagerAgent(BaseAgent):
         # In a real implementation, we would pass the agent ID to a task queue
         # For simplicity, we'll simulate the result
         result = (
-    f"TaskCreatorAgent ({task_creator_id}) has been tasked with "
-    f"creating tasks based on the requirements."
-)
+            f"TaskCreatorAgent ({task_creator_id}) has been tasked with "
+            f"creating tasks based on the requirements."
+        )
 
         # In a real system, we'd wait for the agent to complete
         # task_creator.run(project_id, requirements)
