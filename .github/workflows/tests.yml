@@ -1,0 +1,58 @@
+name: Hopple Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: hopple_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: "3.9"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install pytest pytest-cov pytest-asyncio mypy types-requests
+
+      - name: Run mypy
+        run: mypy hopple
+
+      - name: Run unit tests
+        run: python -m pytest tests/unit/ -v
+
+      - name: Run integration tests
+        run: python -m pytest tests/integration/ -v
+
+      - name: Generate coverage report
+        run: |
+          python -m pytest --cov=hopple --cov-report=xml
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v1
+        with:
+          file: ./coverage.xml
+          fail_ci_if_error: false

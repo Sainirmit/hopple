@@ -8,7 +8,7 @@ from enum import Enum
 from typing import Dict, Any, List, Optional, Union, cast
 from decimal import Decimal
 
-from sqlalchemy import Column, String, Text, DateTime, Boolean, ForeignKey, Integer
+from sqlalchemy import Column, String, Text, DateTime, Boolean, ForeignKey, Integer, JSON
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql.elements import ColumnElement
@@ -17,14 +17,25 @@ from hopple.database.db_config import Base
 
 
 class AgentType(str, Enum):
-    """Types of agents in the system."""
+    """Type of an agent."""
     
     PROJECT_MANAGER = "project_manager"
     TASK_CREATOR = "task_creator"
     PRIORITIZER = "prioritizer"
-    WORKER_ASSIGNER = "worker_assigner"
+    WORKER_ASSIGNMENT = "worker_assignment"
     MEETING_SUMMARIZER = "meeting_summarizer"
-    CUSTOM = "custom"
+    CODE_REVIEWER = "code_reviewer"
+
+
+class AgentRole(str, Enum):
+    """Role of an agent."""
+    
+    PROJECT_MANAGER = "project_manager"
+    TASK_CREATOR = "task_creator"
+    PRIORITIZER = "prioritizer"
+    WORKER_ASSIGNMENT = "worker_assignment"
+    MEETING_SUMMARIZER = "meeting_summarizer"
+    CODE_REVIEWER = "code_reviewer"
 
 
 class AgentStatus(str, Enum):
@@ -33,7 +44,8 @@ class AgentStatus(str, Enum):
     ACTIVE = "active"
     SLEEPING = "sleeping"
     TERMINATED = "terminated"
-    ERROR = "error"
+    SUCCESS = "success"
+    FAILED = "failed"
 
 
 class Agent(Base):
@@ -50,6 +62,7 @@ class Agent(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     last_active = Column(DateTime, default=datetime.utcnow)
+    last_message = Column(Text, nullable=True)
     
     # Configuration and state data
     configuration = Column(JSONB, default=dict)
@@ -63,6 +76,7 @@ class Agent(Base):
     
     # Foreign keys
     parent_agent_id = Column(UUID(as_uuid=True), ForeignKey("agents.id"), nullable=True)
+    project_id = Column(UUID(as_uuid=True), ForeignKey('projects.id'), nullable=True)
     
     # Relationships
     created_tasks = relationship("Task", back_populates="created_by_agent")
@@ -72,10 +86,11 @@ class Agent(Base):
         remote_side=[id],
         cascade="all"
     )
+    parent_agent = relationship('Agent', remote_side=[id], backref='sub_agents')
     
     def __repr__(self) -> str:
         """String representation of the agent."""
-        return f"<Agent(id={self.id}, name={self.name}, type={self.agent_type})>"
+        return f"<Agent(id={self.id}, name={self.name}, type={self.agent_type}, status={self.status})>"
     
     @property
     def success_rate(self) -> float:
@@ -122,3 +137,40 @@ class Agent(Base):
         """Clear the agent's cache."""
         cache_dict: Dict[str, Any] = {}
         self.cache = cache_dict
+    
+    @property
+    def is_active(self) -> bool:
+        """Get if the agent is active."""
+        return self.status == AgentStatus.ACTIVE.value
+    
+    @property
+    def is_sleeping(self) -> bool:
+        """Get if the agent is sleeping."""
+        return self.status == AgentStatus.SLEEPING.value
+    
+    @property
+    def is_terminated(self) -> bool:
+        """Get if the agent is terminated."""
+        return self.status == AgentStatus.TERMINATED.value
+    
+    @property
+    def is_root_agent(self) -> bool:
+        """Get if the agent is a root agent (has no parent)."""
+        return self.parent_agent_id is None
+    
+    @property
+    def has_sub_agents(self) -> bool:
+        """Get if the agent has sub-agents."""
+        return len(self.sub_agents) > 0
+    
+    @property
+    def sub_agent_count(self) -> int:
+        """Get the count of sub-agents for this agent."""
+        result = len(self.sub_agents)
+        return result
+    
+    @property
+    def active_sub_agent_count(self) -> int:
+        """Get the count of active sub-agents for this agent."""
+        result = sum(1 for agent in self.sub_agents if agent.is_active)
+        return result
