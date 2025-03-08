@@ -4,7 +4,7 @@ User API routes for Hopple.
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, cast
 import uuid
 from datetime import datetime
 
@@ -13,6 +13,7 @@ from hopple.database.models.user import User, UserRole, UserStatus
 from hopple.api.middlewares.auth import get_current_user, require_admin, require_authenticated
 from hopple.api.dto.auth_dto import CurrentUser
 from hopple.utils.logger import logger
+from hopple.services.user_service import UserService
 
 # Create router
 router = APIRouter()
@@ -167,25 +168,27 @@ async def update_user(
         
         # Update notification preferences
         if "notificationPreferences" in user_data:
-            preferences = user.preferences or {}
-            preferences["notifications"] = user_data["notificationPreferences"]
-            user.preferences = preferences
+            preferences: Dict[str, Any] = user.preferences or {}
+            if preferences is not None:
+                preferences["notifications"] = user_data["notificationPreferences"]
+                user.preferences = preferences
         
         # Set onboarding completed status
         if "hasCompletedOnboarding" in user_data and user_data["hasCompletedOnboarding"]:
-            user_metadata = user.user_metadata or {}
-            user_metadata["onboarding_completed"] = True
-            user_metadata["onboarding_completed_at"] = datetime.utcnow().isoformat()
-            user.user_metadata = user_metadata
+            user_metadata: Dict[str, Any] = user.user_metadata or {}
+            if user_metadata is not None:
+                user_metadata["onboarding_completed"] = True
+                user_metadata["onboarding_completed_at"] = datetime.utcnow().isoformat()
+                user.user_metadata = user_metadata
         
         # Update user metadata fields
         if "title" in user_data or "bio" in user_data:
             user_metadata = user.user_metadata or {}
             
-            if "title" in user_data:
+            if "title" in user_data and user_metadata is not None:
                 user_metadata["title"] = user_data["title"]
                 
-            if "bio" in user_data:
+            if "bio" in user_data and user_metadata is not None:
                 user_metadata["bio"] = user_data["bio"]
                 
             user.user_metadata = user_metadata
@@ -227,14 +230,26 @@ async def complete_onboarding(
     initial onboarding flow.
     """
     try:
+        # Use the UserService
+        user_service = UserService(db)
+        
         # Get user by email
         user = None
         if "email" in onboarding_data:
-            user = db.query(User).filter(User.email == onboarding_data["email"]).first()
+            user = user_service.get_user_by_email(onboarding_data["email"])
         
         # Create user if not exists
         if not user:
             return await create_user(onboarding_data, db)
+        
+        # Prepare dummy CurrentUser for the service
+        dummy_user = CurrentUser(
+            id=uuid.UUID(str(user.id)),
+            email=str(user.email),
+            username=str(user.username),
+            full_name=str(user.full_name) if user.full_name else None,
+            role=str(user.role)
+        )
         
         # Update user with onboarding data
         user_data = {
@@ -259,7 +274,29 @@ async def complete_onboarding(
             user_data["bio"] = onboarding_data["bio"]
         
         # Update user
-        return await update_user(str(user.id), user_data, None, db)
+        updated_user = user_service.update_user(str(user.id), user_data, dummy_user)
+        if not updated_user:
+            raise HTTPException(status_code=404, detail=f"User not found or could not be updated")
+            
+        # Return user data
+        user_metadata: Dict[str, Any] = updated_user.user_metadata or {}
+        has_completed_onboarding = user_metadata.get("onboarding_completed", False) if user_metadata else False
+            
+        return {
+            "id": str(updated_user.id),
+            "email": updated_user.email,
+            "username": updated_user.username,
+            "full_name": updated_user.full_name,
+            "role": updated_user.role,
+            "created_at": updated_user.created_at,
+            "updated_at": updated_user.updated_at,
+            "is_active": updated_user.is_active,
+            "skills": list(updated_user.skills.keys()) if updated_user.skills else [],
+            "preferences": updated_user.preferences or {},
+            "hasCompletedOnboarding": has_completed_onboarding,
+            "title": user_metadata.get("title", "") if user_metadata else "",
+            "bio": user_metadata.get("bio", "") if user_metadata else ""
+        }
     except Exception as e:
         logger.error(f"Error completing onboarding: {str(e)}")
         raise HTTPException(status_code=400, detail=f"Error completing onboarding: {str(e)}")
@@ -282,7 +319,7 @@ async def get_current_user_profile(
             raise HTTPException(status_code=404, detail="User not found")
         
         # Check if user has completed onboarding
-        user_metadata = user.user_metadata or {}
+        user_metadata: Dict[str, Any] = user.user_metadata or {}
         has_completed_onboarding = user_metadata.get("onboarding_completed", False)
         
         return {
@@ -334,7 +371,7 @@ async def get_user(
             raise HTTPException(status_code=404, detail=f"User with ID {user_id} not found")
         
         # Build response
-        user_metadata = user.user_metadata or {}
+        user_metadata: Dict[str, Any] = user.user_metadata or {}
         
         return {
             "id": str(user.id),
@@ -346,8 +383,8 @@ async def get_user(
             "updated_at": user.updated_at,
             "is_active": user.is_active,
             "skills": list(user.skills.keys()) if user.skills else [],
-            "title": user_metadata.get("title", ""),
-            "bio": user_metadata.get("bio", ""),
+            "title": user_metadata.get("title", "") if user_metadata else "",
+            "bio": user_metadata.get("bio", "") if user_metadata else "",
             "preferences": user.preferences or {}
         }
     except ValueError:

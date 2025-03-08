@@ -65,11 +65,11 @@ async def get_current_user(
             )
         
         return CurrentUser(
-            id=user.id,
-            email=user.email,
-            username=user.username,
-            full_name=user.full_name,
-            role=user.role
+            id=uuid.UUID(str(user.id)),
+            email=str(user.email),
+            username=str(user.username),
+            full_name=str(user.full_name) if user.full_name else None,
+            role=str(user.role)
         )
     except Exception as e:
         raise HTTPException(

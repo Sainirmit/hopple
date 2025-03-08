@@ -1,32 +1,37 @@
 """
 Task Creator Agent for Hopple.
 
-This agent is responsible for creating tasks based on project requirements.
+This agent is responsible for breaking down requirements into tasks.
 """
 
-import uuid
-from typing import Dict, Any, List, Optional, Tuple, cast
 import json
-import requests
-
-from loguru import logger
-from langchain_community.llms import Ollama
+import uuid
+from typing import Dict, List, Any, Optional, TypedDict, Union, cast
+import requests  # type: ignore
+from datetime import datetime
 from sqlalchemy.orm import Session
+from loguru import logger
 
+from hopple.database.models.task import Task, TaskPriority, TaskStatus
+from hopple.database.models.project import Project
+from hopple.database.models.agent import AgentType, AgentRole, AgentStatus
 from hopple.agents.base.base_agent import BaseAgent
-from hopple.database.models import Agent as AgentModel, AgentType, AgentStatus
-from hopple.database.models import Task, TaskPriority, TaskStatus, TaskDependency
-from hopple.database.models import Project
-from hopple.database.db_config import db_session
+from hopple.utils.logger import logger
 from hopple.config.config import get_settings
 
+# Get settings
+settings = get_settings()
+
+class Message(TypedDict):
+    """Message type for conversation history."""
+    role: str
+    content: str
 
 class TaskCreatorAgent(BaseAgent):
     """
-    Task Creator Agent class.
+    Task Creator Agent is responsible for breaking down requirements into tasks.
     
-    This agent analyzes project requirements and creates appropriate tasks.
-    It generates task descriptions, estimates effort, and identifies dependencies.
+    It uses an LLM to analyze requirements and generate structured task data.
     """
     
     def __init__(
@@ -37,182 +42,142 @@ class TaskCreatorAgent(BaseAgent):
         configuration: Optional[Dict[str, Any]] = None,
         **kwargs
     ):
-        """
-        Initialize the Task Creator Agent.
-        
-        Args:
-            name: The name of the agent
-            parent_agent_id: The ID of the parent agent
-            model_name: The name of the LLM model to use
-            configuration: Additional configuration for the agent
-            **kwargs: Additional keyword arguments
-        """
+        """Initialize the task creator agent."""
         super().__init__(
-            name=name,
-            agent_type=AgentType.TASK_CREATOR,
-            parent_agent_id=parent_agent_id,
-            model_name=model_name,
-            configuration=configuration,
-            **kwargs
+            name=name, 
+            agent_type=AgentType.TASK_CREATOR, 
+            agent_role=AgentRole.TASK_CREATOR,
+            parent_agent_id=parent_agent_id
         )
         
-        settings = get_settings()
+        # Set configuration
+        self.configuration = configuration or {}
         
-        # Initialize LLM
-        try:
-            self.llm = Ollama(
-                model="mistral:latest",  # Use the exact model name from ollama list
-                temperature=settings.llm.LLM_TEMPERATURE
-            )
-            logger.info(f"Successfully initialized Ollama with model: mistral:latest")
-        except Exception as e:
-            logger.error(f"Error initializing Ollama: {e}")
-            # Fallback to a simple mock LLM for testing
-            self.llm = None
+        # Set model name
+        self.model_name = model_name or settings.llm.LLM_MODEL
         
-        # Initialize messages list for conversation history
-        self.messages = []
+        # Initialize conversation history
+        self.messages: List[Message] = []
         
-        # System prompt for the agent
-        self.system_prompt = """
-        You are Hopple's Task Creator Agent, responsible for analyzing project requirements
-        and creating well-defined tasks. Your goal is to break down complex requirements
-        into manageable tasks with clear descriptions, effort estimates, and dependencies.
+        # Add system message
+        self.add_message("system", """
+        You are an expert project manager assistant specialized in breaking down project requirements 
+        into well-defined, actionable tasks. Your job is to create an organized list of tasks from the project 
+        requirements with the following fields for each task:
         
-        For each task, you should provide:
-        1. Title: A concise, descriptive title
-        2. Description: A clear explanation of what needs to be done
-        3. Estimated Effort: A numeric value (1-10) representing the relative effort
-        4. Priority: One of [HIGH, MEDIUM, LOW]
-        5. Dependencies: List of other task titles this task depends on
-        6. Skills: List of skills required to complete the task
+        - title: A clear, concise title for the task
+        - description: A detailed description of what needs to be done
+        - priority: One of "HIGH", "MEDIUM", or "LOW"
+        - estimated_effort: Estimated hours to complete (integer)
+        - dependencies: List of task titles that this task depends on (can be empty)
+        - skills_required: List of skills required to complete this task
         
-        Always ensure tasks are atomic, well-defined, and have clear acceptance criteria.
-        """
+        Consider logical dependencies between tasks. If task B can only start after task A is complete, make task A a dependency of task B.
+        Break down large requirements into smaller, manageable tasks. Aim for tasks that take 4-8 hours to complete.
+        Respond with a JSON array of tasks, nothing else.
+        """)
         
-        self.add_message("system", self.system_prompt)
+        # Set LLM API parameters
+        self.temperature = self.configuration.get("temperature", settings.llm.LLM_TEMPERATURE)
+        self.api_base_url = self.configuration.get("api_base_url", settings.llm.LLM_BASE_URL)
         
         logger.info(f"Task Creator Agent initialized: {self.name}")
     
     async def run(self, project_id: uuid.UUID, requirements: str, session: Optional[Session] = None) -> List[Dict[str, Any]]:
         """
-        Run the Task Creator Agent to generate tasks from project requirements.
+        Process requirements and create tasks.
         
         Args:
-            project_id: The ID of the project
-            requirements: The project requirements
-            session: Optional SQLAlchemy session to use
-            
+            project_id: The project ID to create tasks for
+            requirements: The project requirements text
+            session: SQLAlchemy database session
+
         Returns:
             A list of created tasks
         """
-        logger.info(f"Task Creator Agent running for project: {project_id}")
+        # Validate inputs
+        if not requirements or not requirements.strip():
+            logger.error("Requirements text is empty")
+            return []
         
-        # Add the requirements to messages
-        prompt = f"""
-        Given the following project requirements, create a list of well-defined tasks.
-        For each task, provide:
-        1. A clear, concise title
-        2. A detailed description
-        3. Estimated effort in hours
-        4. Priority level (LOW, MEDIUM, HIGH, CRITICAL)
-        5. Required skills
-        6. Dependencies on other tasks (if any)
-
-        Requirements:
-        {requirements}
-
-        Format your response as a JSON array of tasks, where each task has the following structure:
-        {{
-            "title": "string",
-            "description": "string",
-            "estimated_effort": number,
-            "priority": "LOW|MEDIUM|HIGH|CRITICAL",
-            "skills": ["skill1", "skill2", ...],
-            "dependencies": ["task_title1", "task_title2", ...]
-        }}
-
-        Ensure tasks are:
-        - Specific and actionable
-        - Properly sized (not too big or too small)
-        - Logically ordered with clear dependencies
-        - Aligned with project goals
+        # Create conversation
+        self.add_message("human", f"Here are the requirements for a project: {requirements}")
         
-        IMPORTANT: Your response must be valid JSON. Do not include any explanations or text outside the JSON array.
-        """
+        # Get database session
+        if session is None:
+            from hopple.database.db_config import SessionLocal
+            session = SessionLocal()
+            local_session = True
+        else:
+            local_session = False
         
-        self.add_message("human", prompt)
-        
-        # Call the LLM to analyze requirements and generate tasks
         try:
-            # Use direct Ollama API call
-            response_text = self._call_ollama_api(prompt)
+            # Check if project exists
+            project = session.query(Project).filter(Project.id == project_id).first()
+            if not project:
+                logger.error(f"Project with ID {project_id} not found")
+                return []
             
-            # Try to extract JSON from the response
+            # Call LLM to generate tasks
+            logger.info(f"Generating tasks for project: {project.name}")
+            tasks_json = self._generate_tasks(requirements)
+            
+            # Parse and validate tasks
             try:
-                # Find the first [ and last ] to extract the JSON array
-                start_idx = response_text.find('[')
-                end_idx = response_text.rfind(']') + 1
+                tasks = json.loads(tasks_json)
+                if not isinstance(tasks, list):
+                    logger.error(f"Invalid tasks format, expected list but got: {type(tasks)}")
+                    return []
                 
-                if start_idx >= 0 and end_idx > start_idx:
-                    json_str = response_text[start_idx:end_idx]
-                    tasks_data = json.loads(json_str)
-                else:
-                    # Try to parse the entire response as JSON
-                    tasks_data = json.loads(response_text)
-            except json.JSONDecodeError:
-                logger.error(f"Failed to parse JSON from response: {response_text}")
-                # Provide a fallback response with a default task
-                tasks_data = [
-                    {
-                        "title": "Analyze Project Requirements",
-                        "description": "Review and analyze the project requirements to understand the scope and objectives.",
-                        "estimated_effort": 4,
-                        "priority": "HIGH",
-                        "skills": ["Analysis", "Project Management"],
-                        "dependencies": []
-                    }
-                ]
-                logger.info("Using fallback task data due to JSON parsing error")
-            
-            # Validate and clean up the response
-            validated_tasks = []
-            for task_data in tasks_data:
-                try:
-                    # Ensure required fields are present
-                    title = task_data["title"]
-                    description = task_data["description"]
-                    estimated_effort = int(task_data["estimated_effort"])
-                    priority = TaskPriority(task_data["priority"].lower())
-                    skills = task_data.get("skills", [])
-                    dependencies = task_data.get("dependencies", [])
-                    
-                    validated_tasks.append({
-                        "title": title,
-                        "description": description,
-                        "estimated_effort": estimated_effort,
-                        "priority": priority,
-                        "skills": skills,
-                        "dependencies": dependencies
-                    })
-                except (KeyError, ValueError, TypeError) as e:
-                    logger.warning(f"Invalid task data: {task_data}. Error: {str(e)}")
-                    continue
-            
-            # Store tasks in the database
-            created_tasks: List[Dict[str, Any]] = []
-            db_sess = session
-            if db_sess is None:
-                with db_session() as db_sess:
-                    return self._create_tasks_in_db(db_sess, project_id, validated_tasks, created_tasks)
-            else:
-                return self._create_tasks_in_db(db_sess, project_id, validated_tasks, created_tasks)
-            
+                # Log number of tasks
+                logger.info(f"Generated {len(tasks)} tasks")
+                
+                # Validate tasks
+                validated_tasks = []
+                for task in tasks:
+                    if isinstance(task, dict) and "title" in task and "description" in task:
+                        # Validate and set defaults
+                        priority = task.get("priority", "MEDIUM").upper()
+                        if priority not in ["HIGH", "MEDIUM", "LOW"]:
+                            priority = "MEDIUM"
+                        
+                        validated_task = {
+                            "title": task["title"],
+                            "description": task["description"],
+                            "priority": priority,
+                            "estimated_effort": int(task.get("estimated_effort", 4)),
+                            "skills_required": task.get("skills_required", []),
+                            "dependencies": task.get("dependencies", []),
+                        }
+                        validated_tasks.append(validated_task)
+                    else:
+                        logger.warning(f"Skipping invalid task: {task}")
+                
+                # Save tasks to database
+                created_tasks = self._create_tasks_in_db(
+                    session, 
+                    project_id, 
+                    validated_tasks,
+                    []  # Start with empty list for created tasks
+                )
+                
+                # Update agent status
+                self.update_status(AgentStatus.SUCCESS)
+                
+                return created_tasks
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse tasks JSON: {e}")
+                self.update_status(AgentStatus.FAILED)
+                return []
         except Exception as e:
-            logger.error(f"Error creating tasks: {str(e)}")
-            self.update_metrics(success=False)
-            raise 
-
+            logger.error(f"Error generating tasks: {str(e)}")
+            self.update_status(AgentStatus.FAILED)
+            return []
+        finally:
+            # Close local session if created here
+            if local_session:
+                session.close()
+    
     def _create_tasks_in_db(
         self, 
         session: Session, 
@@ -224,73 +189,86 @@ class TaskCreatorAgent(BaseAgent):
         Create tasks in the database.
         
         Args:
-            session: SQLAlchemy session
-            project_id: The ID of the project
+            session: SQLAlchemy database session
+            project_id: Project ID to create tasks for
             validated_tasks: List of validated task data
-            created_tasks: List to store created tasks
+            created_tasks: List to store created task data
             
         Returns:
-            List of created tasks
+            List of created task data
         """
-        # Check if project exists
-        project = session.query(Project).filter(Project.id == project_id).first()
-        if not project:
-            logger.error(f"Project {project_id} not found")
-            raise ValueError(f"Project {project_id} not found")
-
-        # Create tasks first
-        task_map = {}  # Map of title to task object for dependency resolution
+        # Create task objects
+        task_objects = []
+        dependency_map = {}
+        
+        # First pass: create all tasks
         for task_data in validated_tasks:
             task = Task(
                 title=task_data["title"],
                 description=task_data["description"],
+                priority=TaskPriority[task_data["priority"]].value,
+                status=TaskStatus.TODO.value,
                 estimated_effort=task_data["estimated_effort"],
-                priority=task_data["priority"],
                 project_id=project_id,
-                created_by_agent_id=self.db_id,
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow(),
+                is_completed=False,
                 task_metadata={
-                    "skills": task_data["skills"],
-                    "original_dependencies": task_data["dependencies"]
+                    "skills_required": task_data["skills_required"],
+                    "dependencies": task_data["dependencies"],
+                    "source": "task_creator_agent"
                 }
             )
             session.add(task)
             session.flush()  # Flush to get the task ID
-            task_map[task_data["title"]] = task
-            created_tasks.append(task_data)
+            
+            # Store task in map for dependencies
+            dependency_map[task_data["title"]] = task.id
+            
+            # Add to objects list
+            task_objects.append(task)
+            
+            # Add to created tasks list
+            created_tasks.append({
+                "id": str(task.id),
+                "title": task.title,
+                "description": task.description,
+                "priority": task.priority,
+                "status": task.status,
+                "estimated_effort": task.estimated_effort,
+                "skills_required": task_data["skills_required"],
+                "dependencies": task_data["dependencies"]
+            })
         
-        # Now create task dependencies
-        for task_data in validated_tasks:
-            task = task_map[task_data["title"]]
-            for dep_title in task_data["dependencies"]:
-                if dep_title in task_map:
-                    dep_task = task_map[dep_title]
-                    # Create dependency relationship
-                    task_dependency = TaskDependency(
-                        task_id=task.id,
-                        depends_on_id=dep_task.id
-                    )
-                    session.add(task_dependency)
+        # TODO: Second pass: handle dependencies
+        # This would require setting up task dependencies in the database
         
+        # Commit changes
         session.commit()
         
-        # Generate summary for the conversation
-        tasks_summary = "\n".join([
-            f"- {task['title']}: {task['description']} "
-            f"(Priority: {task['priority']}, Effort: {task['estimated_effort']}h)"
-            for task in created_tasks
-        ])
-        response = f"I've analyzed the requirements and created the following tasks:\n\n{tasks_summary}"
-        
-        self.add_message("ai", response)
-        
-        # Update metrics
-        self.update_metrics(success=True)
-        
-        # After creating tasks, put the agent to sleep
-        self.sleep()
-        
         return created_tasks
-
+    
+    def _generate_tasks(self, requirements: str) -> str:
+        """
+        Generate tasks from requirements using LLM.
+        
+        Args:
+            requirements: Project requirements text
+            
+        Returns:
+            JSON string containing generated tasks
+        """
+        # Add user message
+        self.add_message("human", requirements)
+        
+        # Call LLM API based on provider
+        result = self._call_ollama_api(requirements)
+        
+        # Add response to conversation
+        self.add_message("ai", result)
+        
+        return result
+    
     def add_message(self, role: str, content: str) -> None:
         """
         Add a message to the conversation history.
@@ -299,9 +277,10 @@ class TaskCreatorAgent(BaseAgent):
             role: The role of the message sender (system, human, or ai)
             content: The content of the message
         """
-        self.messages.append({"role": role, "content": content})
+        message: Message = {"role": role, "content": content}
+        self.messages.append(message)
         
-    def get_messages(self) -> List[Dict[str, str]]:
+    def get_messages(self) -> List[Message]:
         """
         Get the conversation history.
         
@@ -315,27 +294,56 @@ class TaskCreatorAgent(BaseAgent):
         Call the Ollama API directly.
         
         Args:
-            prompt: The prompt to send to the model
+            prompt: The prompt to send to the LLM
             
         Returns:
-            The model's response
+            The LLM's response
         """
         try:
+            # Format system and conversation context
+            system_prompt = next((m["content"] for m in self.messages if m["role"] == "system"), "")
+            
+            # Call Ollama API
             response = requests.post(
-                "http://localhost:11434/api/generate",
+                f"{self.api_base_url}/api/generate",
                 json={
-                    "model": "mistral:latest",
-                    "prompt": prompt,
-                    "stream": False
+                    "model": self.model_name,
+                    "prompt": f"{system_prompt}\n\nRequirements:\n{prompt}\n\nCreate a JSON array of tasks based on these requirements:",
+                    "system": "You are a task creator agent that breaks down project requirements into well-defined tasks. Respond with ONLY a JSON array of tasks.",
+                    "temperature": self.temperature
                 },
-                timeout=30
+                timeout=60
             )
             
-            if response.status_code == 200:
-                return response.json()["response"]
-            else:
+            if response.status_code != 200:
                 logger.error(f"Ollama API error: {response.status_code} - {response.text}")
-                return ""
+                return "[]"
+            
+            result = response.json()
+            
+            # Extract response
+            response_text = result.get("response", "[]")
+            
+            # Try to find JSON array in the response
+            if not response_text.strip().startswith("["):
+                # Try to extract JSON part
+                start_idx = response_text.find("[")
+                end_idx = response_text.rfind("]") + 1
+                
+                if start_idx >= 0 and end_idx > start_idx:
+                    response_text = response_text[start_idx:end_idx]
+                else:
+                    logger.warning(f"Could not find JSON array in response: {response_text}")
+                    return "[]"
+            
+            # Validate JSON
+            try:
+                json.loads(response_text)
+                return response_text
+            except json.JSONDecodeError:
+                logger.error(f"Invalid JSON response: {response_text}")
+                return "[]"
+                
         except Exception as e:
-            logger.error(f"Error calling Ollama API: {e}")
-            return "" 
+            logger.error(f"Error calling Ollama API: {str(e)}")
+            return "[]" 

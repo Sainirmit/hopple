@@ -4,7 +4,7 @@ API routes for Hopple.
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, cast
 import uuid
 from datetime import datetime
 
@@ -376,7 +376,7 @@ async def update_task(
             
         if "comments" in task_data:
             # Update comments in task metadata
-            metadata = task.task_metadata or {}
+            metadata: Dict[str, Any] = task.task_metadata or {}
             comments = metadata.get("comments", [])
             
             # Add new comment
@@ -458,7 +458,7 @@ async def get_agents(
     """Get all agents."""
     try:
         agents = db.query(Agent).all()
-        result = []
+        result: List[Dict[str, Any]] = []
         
         for agent in agents:
             result.append({
@@ -501,9 +501,9 @@ async def get_pm_sub_agents(
         sub_agents = db.query(Agent).filter(Agent.parent_agent_id == pm_uuid).all()
         
         # Group by agent type
-        result = {"subAgents": {}}
+        result: Dict[str, Dict[str, List[Dict[str, Any]]]] = {"subAgents": {}}
         for agent in sub_agents:
-            agent_type = agent.agent_type
+            agent_type = str(agent.agent_type)  # Convert to string to ensure it's a valid key
             if agent_type not in result["subAgents"]:
                 result["subAgents"][agent_type] = []
             

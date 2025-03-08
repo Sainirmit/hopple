@@ -4,7 +4,7 @@ User service for Hopple.
 This module provides service methods for user management operations.
 """
 
-from typing import List, Dict, Any, Optional, Union
+from typing import List, Dict, Any, Optional, Union, cast
 from sqlalchemy.orm import Session
 import uuid
 from datetime import datetime
@@ -162,13 +162,13 @@ class UserService(BaseService[User, Any, Any]):
         
         # Update notification preferences
         if "notificationPreferences" in user_data:
-            preferences = user.preferences or {}
+            preferences: Dict[str, Any] = user.preferences or {}
             preferences["notifications"] = user_data["notificationPreferences"]
             user.preferences = preferences
         
         # Set onboarding completed status
         if "hasCompletedOnboarding" in user_data and user_data["hasCompletedOnboarding"]:
-            user_metadata = user.user_metadata or {}
+            user_metadata: Dict[str, Any] = user.user_metadata or {}
             user_metadata["onboarding_completed"] = True
             user_metadata["onboarding_completed_at"] = datetime.utcnow().isoformat()
             user.user_metadata = user_metadata
@@ -177,10 +177,10 @@ class UserService(BaseService[User, Any, Any]):
         if "title" in user_data or "bio" in user_data:
             user_metadata = user.user_metadata or {}
             
-            if "title" in user_data:
+            if "title" in user_data and user_metadata is not None:
                 user_metadata["title"] = user_data["title"]
                 
-            if "bio" in user_data:
+            if "bio" in user_data and user_metadata is not None:
                 user_metadata["bio"] = user_data["bio"]
                 
             user.user_metadata = user_metadata
@@ -207,7 +207,7 @@ class UserService(BaseService[User, Any, Any]):
             return None
         
         # Build profile
-        user_metadata = user.user_metadata or {}
+        user_metadata: Dict[str, Any] = user.user_metadata or {}
         has_completed_onboarding = user_metadata.get("onboarding_completed", False)
         
         return {
