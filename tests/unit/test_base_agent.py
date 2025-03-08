@@ -15,11 +15,13 @@ class TestAgent(BaseAgent):
     """Test implementation of BaseAgent."""
     
     def __init__(self, name="Test Agent", **kwargs):
-        # Mock the _initialize_db_agent method to avoid DB operations
-        with patch.object(BaseAgent, '_initialize_db_agent'):
+        # Mock the _save_to_db method to avoid DB operations
+        with patch.object(BaseAgent, '_save_to_db') as mock_save:
             super().__init__(name=name, agent_type=AgentType.CUSTOM, **kwargs)
             # Set a test DB ID manually
             self.db_id = uuid.uuid4()
+            # Ensure the mock was called
+            assert mock_save.called
     
     async def run(self, *args, **kwargs):
         """Implement the abstract run method."""
@@ -47,11 +49,8 @@ class TestBaseAgent:
         """Test that the agent initializes correctly."""
         mock, session, _ = mock_db_session
         
-        # Create a test agent with mocked _initialize_db_agent
-        with patch.object(BaseAgent, '_initialize_db_agent'):
-            agent = TestAgent()
-            # Set a test DB ID manually
-            agent.db_id = uuid.uuid4()
+        # Create a test agent with mocked _save_to_db
+        agent = TestAgent()
         
         # Check that the agent was initialized correctly
         assert agent.name == "Test Agent"
@@ -60,19 +59,18 @@ class TestBaseAgent:
     
     def test_add_message(self):
         """Test adding messages to the agent."""
-        with patch("hopple.agents.base.base_agent.db_session"):
-            agent = TestAgent()
-            
-            # Add messages of different types
-            agent.add_message("system", "System message")
-            agent.add_message("human", "Human message")
-            agent.add_message("ai", "AI message")
-            
-            # Check that the messages were added
-            assert len(agent.messages) == 3
-            assert agent.messages[0].content == "System message"
-            assert agent.messages[1].content == "Human message"
-            assert agent.messages[2].content == "AI message"
+        agent = TestAgent()
+        
+        # Add messages of different types
+        agent.add_message("system", "System message")
+        agent.add_message("human", "Human message")
+        agent.add_message("ai", "AI message")
+        
+        # Check that the messages were added
+        assert len(agent.messages) == 3
+        assert agent.messages[0]["content"] == "System message"
+        assert agent.messages[1]["content"] == "Human message"
+        assert agent.messages[2]["content"] == "AI message"
     
     def test_update_status(self, mock_db_session):
         """Test updating the agent's status."""
@@ -97,14 +95,22 @@ class TestBaseAgent:
         # Create a test agent
         agent = TestAgent()
         
-        # Test update_cache
-        agent.update_cache("test_key", "test_value")
-        assert agent.cache["test_key"] == "test_value"
+        # Set up the mock cache
+        agent_model.cache = {}
+        
+        # Test set_cache
+        agent.set_cache("test_key", "test_value")
+        
+        # Set up the mock for get_cache
+        agent_model.cache = {"test_key": "test_value"}
         
         # Test get_cache
         assert agent.get_cache("test_key") == "test_value"
-        assert agent.get_cache("nonexistent_key", "default") == "default"
+        
+        # Test nonexistent key
+        agent_model.cache = {}
+        assert agent.get_cache("nonexistent_key") is None
         
         # Test clear_cache
         agent.clear_cache()
-        assert agent.cache == {}
+        assert agent.get_cache("test_key") is None

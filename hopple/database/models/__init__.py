@@ -5,7 +5,7 @@ Database models for Hopple.
 from hopple.database.models.user import User, UserRole, UserStatus
 from hopple.database.models.project import Project, ProjectStatus
 from hopple.database.models.task import Task, TaskPriority, TaskStatus, TaskDependency
-from hopple.database.models.agent import Agent, AgentType, AgentStatus
+from hopple.database.models.agent import Agent, AgentType, AgentStatus, AgentRole
 
 __all__ = [
     "User",
@@ -20,4 +20,5 @@ __all__ = [
     "Agent",
     "AgentType",
     "AgentStatus",
+    "AgentRole",
 ]

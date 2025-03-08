@@ -16,7 +16,7 @@ from hopple.database.models.project import Project, ProjectStatus
 @pytest.fixture
 def task_creator_agent():
     """Create a TaskCreatorAgent instance for testing."""
-    with patch('hopple.agents.base.base_agent.BaseAgent._initialize_db_agent'):
+    with patch('hopple.agents.base.base_agent.BaseAgent._save_to_db'):
         agent = TaskCreatorAgent(
             name="Test Task Creator",
             model_name="test-model"
@@ -139,22 +139,37 @@ async def test_task_creator_agent_run(task_creator_agent, mock_llm_response):
 @pytest.mark.asyncio
 async def test_task_creator_agent_invalid_response(task_creator_agent):
     """Test the TaskCreatorAgent's handling of invalid LLM responses."""
-    # Mock the LLM with invalid JSON response
-    task_creator_agent.llm = AsyncMock()
-    task_creator_agent.llm.agenerate.return_value = LLMResult(
-        generations=[[Generation(text="Invalid JSON")]],
-        llm_output=None
-    )
+    # Mock the direct Ollama API call with invalid JSON response
+    task_creator_agent._call_ollama_api = MagicMock()
+    task_creator_agent._call_ollama_api.return_value = "Invalid JSON"
     
     # Create a test project ID
     project_id = uuid.uuid4()
+    project = Project(
+        id=project_id,
+        name="Test Project",
+        description="A test project",
+        status=ProjectStatus.PLANNING.value
+    )
     
     # Test requirements
     requirements = "Test requirements"
     
     # Run the agent and expect an exception
-    with pytest.raises(Exception):
-        await task_creator_agent.run(project_id, requirements)
+    with patch('hopple.database.db_config.db_session') as mock_session:
+        # Set up the mock session
+        session_instance = MagicMock()
+        mock_session.return_value.__enter__.return_value = session_instance
+        
+        # Mock the project query
+        mock_query = MagicMock()
+        mock_filter = MagicMock()
+        mock_filter.first.return_value = project
+        mock_query.filter.return_value = mock_filter
+        session_instance.query.return_value = mock_query
+        
+        with pytest.raises(ValueError):
+            await task_creator_agent.run(project_id, requirements, session=session_instance)
 
 
 @pytest.mark.asyncio

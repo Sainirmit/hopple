@@ -51,6 +51,7 @@ class BaseAgent:
         self.parent_agent_id = parent_agent_id
         self.status = AgentStatus.ACTIVE
         self.messages: List[Dict[str, str]] = []
+        self.db_id: Optional[uuid.UUID] = None
         
         # Save agent to database
         self._save_to_db()

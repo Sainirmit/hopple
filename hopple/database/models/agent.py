@@ -27,6 +27,17 @@ class AgentType(str, Enum):
     CUSTOM = "custom"
 
 
+class AgentRole(str, Enum):
+    """Role of an agent in the system."""
+    
+    ASSISTANT = "assistant"
+    COORDINATOR = "coordinator"
+    WORKER = "worker"
+    SUPERVISOR = "supervisor"
+    TASK_CREATOR = "task_creator"
+    CUSTOM = "custom"
+
+
 class AgentStatus(str, Enum):
     """Status of an agent."""
     
@@ -34,6 +45,8 @@ class AgentStatus(str, Enum):
     SLEEPING = "sleeping"
     TERMINATED = "terminated"
     ERROR = "error"
+    SUCCESS = "success"
+    FAILED = "failed"
 
 
 class Agent(Base):
@@ -44,6 +57,7 @@ class Agent(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String(255), nullable=False)
     agent_type = Column(String(50), nullable=False)
+    agent_role = Column(String(50), default=AgentRole.ASSISTANT.value)
     model_name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
     status = Column(String(50), default=AgentStatus.ACTIVE.value)
