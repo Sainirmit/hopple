@@ -8,10 +8,13 @@ from fastapi.responses import JSONResponse
 import uuid
 import time
 from loguru import logger
+import uvicorn
 
 from hopple.config.config import get_settings
 from hopple.database.db_config import get_db, init_db
 from hopple.api.routes import api_routes
+from hopple.api.routes import user_routes
+from hopple.api.middlewares.auth import get_current_user, require_authenticated
 
 # Get application settings
 settings = get_settings()
@@ -64,12 +67,27 @@ async def log_requests(request: Request, call_next):
     
 # Include API routes
 app.include_router(api_routes.router, prefix="/api/v1")
+app.include_router(user_routes.router, prefix="/api/v1")
 
 # Health check endpoint
 @app.get("/health")
 async def health_check():
     """Health check endpoint for monitoring."""
     return {"status": "healthy", "version": app.version}
+
+# Authentication check endpoint
+@app.get("/auth/check")
+async def auth_check(current_user = Depends(require_authenticated)):
+    """Check if the user is authenticated."""
+    return {
+        "authenticated": True,
+        "user": {
+            "id": str(current_user.id),
+            "email": current_user.email,
+            "username": current_user.username,
+            "role": current_user.role
+        }
+    }
 
 # Error handlers
 @app.exception_handler(HTTPException)
@@ -107,3 +125,13 @@ async def startup_event():
 async def shutdown_event():
     """Execute actions when the application shuts down."""
     logger.info("Shutting down Hopple API")
+
+
+# Run the application if this module is executed directly
+if __name__ == "__main__":
+    uvicorn.run(
+        "hopple.api.app:app",
+        host=settings.api.API_HOST,
+        port=settings.api.API_PORT,
+        reload=settings.api.API_RELOAD
+    )

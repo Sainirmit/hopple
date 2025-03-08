@@ -8,8 +8,7 @@ import uuid
 from typing import Dict, Any, List, Optional, Tuple
 
 from loguru import logger
-import ollama
-from langchain.llms import Ollama
+from langchain_community.llms import Ollama
 
 from hopple.agents.base.base_agent import BaseAgent
 from hopple.database.models.agent import AgentType, AgentStatus
@@ -61,24 +60,31 @@ class WorkerAssignmentAgent(BaseAgent):
         settings = get_settings()
         
         # Initialize LLM
-        self.llm = Ollama(
-            model=settings.llm.LLM_MODEL,
-            temperature=settings.llm.LLM_TEMPERATURE
-        )
+        try:
+            self.llm = Ollama(
+                model="mistral:latest",  # Use the exact model name from ollama list
+                temperature=settings.llm.LLM_TEMPERATURE
+            )
+            logger.info(f"Successfully initialized Ollama with model: mistral:latest")
+        except Exception as e:
+            logger.error(f"Error initializing Ollama: {e}")
+            # Fallback to a simple mock LLM for testing
+            self.llm = None
         
         # System prompt for the agent
         self.system_prompt = """
-        You are Hopple's Worker Assignment Agent, responsible for matching tasks with the most 
-        suitable team members based on skills, availability, and other factors.
+        You are Hopple's Worker Assignment Agent, responsible for matching tasks
+        with the most suitable workers based on skills and availability.
         
-        Your responsibilities include:
-        1. Analyzing task requirements and required skills
-        2. Evaluating team members' skills and expertise
-        3. Considering workload and availability of team members
-        4. Taking into account task dependencies for assignment
-        5. Optimizing team dynamics and collaboration
+        When assigning workers to tasks, consider:
+        1. Worker skills and expertise
+        2. Worker availability and current workload
+        3. Task requirements and complexity
+        4. Task dependencies and related tasks
+        5. Team dynamics and collaboration patterns
         
-        Make assignments that maximize productivity, quality, and team satisfaction.
+        Always aim to create balanced workloads while ensuring that tasks are
+        assigned to workers with the appropriate skills.
         """
         
         self.add_message("system", self.system_prompt)

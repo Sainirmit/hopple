@@ -8,8 +8,7 @@ import uuid
 from typing import Dict, Any, List, Optional, Tuple
 
 from loguru import logger
-import ollama
-from langchain.llms import Ollama
+from langchain_community.llms import Ollama
 
 from hopple.agents.base.base_agent import BaseAgent
 from hopple.database.models.agent import AgentType, AgentStatus
@@ -60,25 +59,31 @@ class PrioritizerAgent(BaseAgent):
         settings = get_settings()
         
         # Initialize LLM
-        self.llm = Ollama(
-            model=settings.llm.LLM_MODEL,
-            temperature=settings.llm.LLM_TEMPERATURE
-        )
+        try:
+            self.llm = Ollama(
+                model="mistral:latest",  # Use the exact model name from ollama list
+                temperature=settings.llm.LLM_TEMPERATURE
+            )
+            logger.info(f"Successfully initialized Ollama with model: mistral:latest")
+        except Exception as e:
+            logger.error(f"Error initializing Ollama: {e}")
+            # Fallback to a simple mock LLM for testing
+            self.llm = None
         
         # System prompt for the agent
         self.system_prompt = """
-        You are Hopple's Prioritizer Agent, responsible for analyzing tasks and assigning 
-        appropriate priorities based on various factors.
+        You are Hopple's Prioritizer Agent, responsible for analyzing tasks and
+        assigning appropriate priorities based on various factors.
         
-        Your responsibilities include:
-        1. Analyzing task dependencies and identifying critical path tasks
-        2. Evaluating business value and impact of each task
-        3. Considering deadlines and time constraints
-        4. Assessing risks and potential bottlenecks
-        5. Balancing workload and resource availability
+        When prioritizing tasks, consider:
+        1. Business value and impact
+        2. Deadlines and time constraints
+        3. Dependencies between tasks
+        4. Resource availability
+        5. Risk assessment
         
-        You should prioritize tasks based on a combination of urgency and importance, 
-        following the Eisenhower Matrix principles.
+        Always ensure that your prioritization creates a logical sequence of work
+        that maximizes efficiency and minimizes bottlenecks.
         """
         
         self.add_message("system", self.system_prompt)

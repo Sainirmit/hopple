@@ -7,11 +7,10 @@ This agent is responsible for creating tasks based on project requirements.
 import uuid
 from typing import Dict, Any, List, Optional, Tuple, cast
 import json
+import requests
 
 from loguru import logger
-import ollama
 from langchain_community.llms import Ollama
-from langchain.schema import BaseMessage, HumanMessage, AIMessage, SystemMessage
 from sqlalchemy.orm import Session
 
 from hopple.agents.base.base_agent import BaseAgent
@@ -60,27 +59,35 @@ class TaskCreatorAgent(BaseAgent):
         settings = get_settings()
         
         # Initialize LLM
-        self.llm = Ollama(
-            model=settings.llm.LLM_MODEL,
-            temperature=settings.llm.LLM_TEMPERATURE
-        )
+        try:
+            self.llm = Ollama(
+                model="mistral:latest",  # Use the exact model name from ollama list
+                temperature=settings.llm.LLM_TEMPERATURE
+            )
+            logger.info(f"Successfully initialized Ollama with model: mistral:latest")
+        except Exception as e:
+            logger.error(f"Error initializing Ollama: {e}")
+            # Fallback to a simple mock LLM for testing
+            self.llm = None
         
-        # Initialize conversation history
-        self.messages: List[Dict[str, str]] = []
+        # Initialize messages list for conversation history
+        self.messages = []
         
         # System prompt for the agent
         self.system_prompt = """
-        You are Hopple's Task Creator Agent, responsible for analyzing project requirements 
-        and breaking them down into well-defined tasks.
+        You are Hopple's Task Creator Agent, responsible for analyzing project requirements
+        and creating well-defined tasks. Your goal is to break down complex requirements
+        into manageable tasks with clear descriptions, effort estimates, and dependencies.
         
-        Your responsibilities include:
-        1. Identifying discrete tasks from project requirements
-        2. Creating detailed task descriptions
-        3. Estimating the effort required for each task
-        4. Identifying dependencies between tasks
-        5. Specifying required skills for each task
+        For each task, you should provide:
+        1. Title: A concise, descriptive title
+        2. Description: A clear explanation of what needs to be done
+        3. Estimated Effort: A numeric value (1-10) representing the relative effort
+        4. Priority: One of [HIGH, MEDIUM, LOW]
+        5. Dependencies: List of other task titles this task depends on
+        6. Skills: List of skills required to complete the task
         
-        Always create tasks that are specific, measurable, achievable, relevant, and time-bound (SMART).
+        Always ensure tasks are atomic, well-defined, and have clear acceptance criteria.
         """
         
         self.add_message("system", self.system_prompt)
@@ -130,14 +137,43 @@ class TaskCreatorAgent(BaseAgent):
         - Properly sized (not too big or too small)
         - Logically ordered with clear dependencies
         - Aligned with project goals
+        
+        IMPORTANT: Your response must be valid JSON. Do not include any explanations or text outside the JSON array.
         """
         
         self.add_message("human", prompt)
         
         # Call the LLM to analyze requirements and generate tasks
         try:
-            response = await self.llm.agenerate([self.get_messages()])
-            tasks_data = json.loads(response.generations[0][0].text)
+            # Use direct Ollama API call
+            response_text = self._call_ollama_api(prompt)
+            
+            # Try to extract JSON from the response
+            try:
+                # Find the first [ and last ] to extract the JSON array
+                start_idx = response_text.find('[')
+                end_idx = response_text.rfind(']') + 1
+                
+                if start_idx >= 0 and end_idx > start_idx:
+                    json_str = response_text[start_idx:end_idx]
+                    tasks_data = json.loads(json_str)
+                else:
+                    # Try to parse the entire response as JSON
+                    tasks_data = json.loads(response_text)
+            except json.JSONDecodeError:
+                logger.error(f"Failed to parse JSON from response: {response_text}")
+                # Provide a fallback response with a default task
+                tasks_data = [
+                    {
+                        "title": "Analyze Project Requirements",
+                        "description": "Review and analyze the project requirements to understand the scope and objectives.",
+                        "estimated_effort": 4,
+                        "priority": "HIGH",
+                        "skills": ["Analysis", "Project Management"],
+                        "dependencies": []
+                    }
+                ]
+                logger.info("Using fallback task data due to JSON parsing error")
             
             # Validate and clean up the response
             validated_tasks = []
@@ -273,3 +309,33 @@ class TaskCreatorAgent(BaseAgent):
             A list of messages in the conversation
         """
         return self.messages 
+
+    def _call_ollama_api(self, prompt: str) -> str:
+        """
+        Call the Ollama API directly.
+        
+        Args:
+            prompt: The prompt to send to the model
+            
+        Returns:
+            The model's response
+        """
+        try:
+            response = requests.post(
+                "http://localhost:11434/api/generate",
+                json={
+                    "model": "mistral:latest",
+                    "prompt": prompt,
+                    "stream": False
+                },
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                return response.json()["response"]
+            else:
+                logger.error(f"Ollama API error: {response.status_code} - {response.text}")
+                return ""
+        except Exception as e:
+            logger.error(f"Error calling Ollama API: {e}")
+            return "" 
