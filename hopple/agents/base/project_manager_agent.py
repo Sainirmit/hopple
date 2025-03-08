@@ -5,10 +5,9 @@ This agent coordinates other agents and manages project-related tasks.
 """
 
 import uuid
-import asyncio
-from typing import Dict, List, Any, Optional, cast, Union
+from typing import Dict, List, Any, Optional
 import requests  # type: ignore
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from hopple.database.models.agent import Agent, AgentType, AgentStatus
 from hopple.database.models.project import Project

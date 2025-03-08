@@ -6,7 +6,7 @@ This agent is responsible for breaking down requirements into tasks.
 
 import json
 import uuid
-from typing import Dict, List, Any, Optional, TypedDict, Union, cast
+from typing import Dict, List, Any, Optional, TypedDict
 import requests  # type: ignore
 from datetime import datetime
 from sqlalchemy.orm import Session
@@ -16,7 +16,6 @@ from hopple.database.models.task import Task, TaskPriority, TaskStatus
 from hopple.database.models.project import Project
 from hopple.database.models.agent import AgentType, AgentRole, AgentStatus
 from hopple.agents.base.base_agent import BaseAgent
-from hopple.utils.logger import logger
 from hopple.config.config import get_settings
 
 # Get settings
@@ -57,7 +56,7 @@ class TaskCreatorAgent(BaseAgent):
         self.model_name = model_name or settings.llm.LLM_MODEL
         
         # Initialize conversation history
-        self.messages: List[Message] = []
+        self.messages: List[Dict[str, str]] = []
         
         # Add system message
         self.add_message("system", """
@@ -277,17 +276,17 @@ class TaskCreatorAgent(BaseAgent):
             role: The role of the message sender (system, human, or ai)
             content: The content of the message
         """
-        message: Message = {"role": role, "content": content}
+        message: Dict[str, str] = {"role": role, "content": content}
         self.messages.append(message)
-        
-    def get_messages(self) -> List[Message]:
+    
+    def get_messages(self) -> List[Dict[str, str]]:
         """
         Get the conversation history.
         
         Returns:
             A list of messages in the conversation
         """
-        return self.messages 
+        return self.messages
 
     def _call_ollama_api(self, prompt: str) -> str:
         """

@@ -1,205 +1,231 @@
 """
-Base agent class for all AI agents in Hopple.
+Base Agent class for Hopple.
+
+This module provides a base class for all agents in the Hopple system.
 """
 
 import uuid
-from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Dict, Any, List, Optional, Tuple, Union, cast
+from typing import Dict, Any, List, Optional
+import json
 
-from langchain.schema import BaseMessage, HumanMessage, AIMessage, SystemMessage
-from loguru import logger
 from sqlalchemy.orm import Session
 
-from hopple.database.models import Agent as AgentModel, AgentStatus, AgentType
+from hopple.database.models.agent import Agent as AgentModel, AgentType, AgentStatus, AgentRole
 from hopple.database.db_config import db_session
-from hopple.config.config import get_settings
+from hopple.utils.logger import logger
 
 
-class BaseAgent(ABC):
+class BaseAgent:
     """
-    Base agent class that all Hopple agents inherit from.
+    Base Agent class for all agents in Hopple.
     
-    This class provides the foundation for all agent types in the system,
-    including common functionality for agent lifecycle management,
-    communication with LLMs, and database operations.
+    This class provides common functionality for all agents, including:
+    - Database integration
+    - Status tracking
+    - Metrics collection
+    - Message history
     """
     
     def __init__(
         self,
         name: str,
         agent_type: AgentType,
+        agent_role: AgentRole = AgentRole.ASSISTANT,
         parent_agent_id: Optional[uuid.UUID] = None,
-        model_name: Optional[str] = None,
-        configuration: Optional[Dict[str, Any]] = None,
         **kwargs
     ):
         """
-        Initialize a base agent.
+        Initialize the base agent.
         
         Args:
             name: The name of the agent
-            agent_type: The type of the agent
+            agent_type: The type of agent
+            agent_role: The role of the agent
             parent_agent_id: The ID of the parent agent, if any
-            model_name: The name of the model to use (defaults to config)
-            configuration: Additional configuration for the agent
             **kwargs: Additional keyword arguments
         """
         self.name = name
         self.agent_type = agent_type
+        self.agent_role = agent_role
         self.parent_agent_id = parent_agent_id
+        self.status = AgentStatus.ACTIVE
+        self.messages: List[Dict[str, str]] = []
         
-        settings = get_settings()
-        self.model_name = model_name or settings.llm.LLM_MODEL
-        self.configuration = configuration or {}
+        # Save agent to database
+        self._save_to_db()
         
-        # State management
-        self.messages: List[BaseMessage] = []
-        self.db_id: Optional[uuid.UUID] = None
-        self.state: Dict[str, Any] = {}
-        self.cache: Dict[str, Any] = {}
-        
-        # Initialize the agent in the database
-        self._initialize_db_agent()
-        
-        logger.info(f"Initialized {self.agent_type.value} agent: {self.name}")
+        logger.info(f"Agent {self.name} initialized with ID: {self.db_id}")
     
-    def _initialize_db_agent(self) -> None:
-        """Initialize the agent record in the database."""
-        with db_session() as session:
-            agent = AgentModel(
-                name=self.name,
-                agent_type=self.agent_type.value,
-                model_name=self.model_name,
-                description=self.configuration.get("description", ""),
-                status=AgentStatus.ACTIVE.value,
-                configuration=self.configuration,
-                parent_agent_id=self.parent_agent_id
-            )
-            session.add(agent)
-            session.commit()
-            
-            self.db_id = agent.id
-            logger.debug(f"Created agent in DB with ID: {self.db_id}")
-    
-    def add_message(self, role: str, content: str) -> None:
-        """
-        Add a message to the agent's conversation history.
-        
-        Args:
-            role: The role of the message sender (human, ai, system)
-            content: The content of the message
-        """
-        if role == "human":
-            message: BaseMessage = HumanMessage(content=content)
-        elif role == "ai":
-            message = AIMessage(content=content)
-        elif role == "system":
-            message = SystemMessage(content=content)
-        else:
-            raise ValueError(f"Invalid message role: {role}")
-        
-        self.messages.append(message)
+    def _save_to_db(self) -> None:
+        """Save the agent to the database."""
+        try:
+            with db_session() as session:
+                agent = AgentModel(
+                    name=self.name,
+                    agent_type=self.agent_type.value,
+                    agent_role=self.agent_role.value,
+                    parent_agent_id=self.parent_agent_id,
+                    status=self.status.value,
+                    last_active=datetime.utcnow()
+                )
+                session.add(agent)
+                session.commit()
+                session.refresh(agent)
+                self.db_id = agent.id
+        except Exception as e:
+            logger.error(f"Error saving agent to database: {str(e)}")
+            self.db_id = None
     
     def update_status(self, status: AgentStatus) -> None:
         """
-        Update the agent's status in the database.
+        Update the agent's status.
         
         Args:
-            status: The new status for the agent
+            status: The new status
         """
-        if not self.db_id:
-            logger.warning("Cannot update status: Agent not initialized in DB")
-            return
+        self.status = status
         
-        with db_session() as session:
-            agent = session.query(AgentModel).filter(AgentModel.id == self.db_id).first()
-            if agent:
-                agent.update_status(status)
-                
-                if status == AgentStatus.ACTIVE:
-                    logger.info(f"Agent {self.name} activated")
-                elif status == AgentStatus.SLEEPING:
-                    logger.info(f"Agent {self.name} went to sleep")
-                elif status == AgentStatus.TERMINATED:
-                    logger.info(f"Agent {self.name} terminated")
-            else:
-                logger.error(f"Agent with ID {self.db_id} not found in database")
-    
-    def update_cache(self, key: str, value: Any) -> None:
-        """
-        Update the agent's cache with a key-value pair.
-        
-        Args:
-            key: The key for the cache entry
-            value: The value to store
-        """
-        self.cache[key] = value
-        
-        if self.db_id:
+        try:
             with db_session() as session:
                 agent = session.query(AgentModel).filter(AgentModel.id == self.db_id).first()
                 if agent:
-                    agent.update_cache(key, value)
+                    agent.status = status.value
+                    agent.last_active = datetime.utcnow()
+                    session.commit()
+        except Exception as e:
+            logger.error(f"Error updating agent status: {str(e)}")
     
-    def get_cache(self, key: str, default: Any = None) -> Any:
+    def add_message(self, role: str, content: str) -> None:
+        """
+        Add a message to the conversation history.
+        
+        Args:
+            role: The role of the message sender (system, human, or ai)
+            content: The content of the message
+        """
+        self.messages.append({"role": role, "content": content})
+    
+    def get_messages(self) -> List[Dict[str, str]]:
+        """
+        Get the conversation history.
+        
+        Returns:
+            A list of messages in the conversation
+        """
+        return self.messages
+    
+    def update_metrics(self, success: bool = True) -> None:
+        """
+        Update agent metrics.
+        
+        Args:
+            success: Whether the agent operation was successful
+        """
+        try:
+            with db_session() as session:
+                agent = session.query(AgentModel).filter(AgentModel.id == self.db_id).first()
+                if agent:
+                    metrics = agent.metrics or {}
+                    
+                    # Update total runs
+                    metrics["total_runs"] = metrics.get("total_runs", 0) + 1
+                    
+                    # Update success/failure counts
+                    if success:
+                        metrics["successful_runs"] = metrics.get("successful_runs", 0) + 1
+                    else:
+                        metrics["failed_runs"] = metrics.get("failed_runs", 0) + 1
+                    
+                    # Calculate success rate
+                    total = metrics.get("total_runs", 0)
+                    if total > 0:
+                        metrics["success_rate"] = metrics.get("successful_runs", 0) / total
+                    
+                    # Update last run timestamp
+                    metrics["last_run"] = datetime.utcnow().isoformat()
+                    
+                    agent.metrics = metrics
+                    session.commit()
+        except Exception as e:
+            logger.error(f"Error updating agent metrics: {str(e)}")
+    
+    def sleep(self) -> None:
+        """Put the agent to sleep (mark as inactive)."""
+        self.update_status(AgentStatus.SLEEPING)
+        logger.info(f"Agent {self.name} is now sleeping")
+    
+    def wake(self) -> None:
+        """Wake up the agent (mark as active)."""
+        self.update_status(AgentStatus.ACTIVE)
+        logger.info(f"Agent {self.name} is now active")
+    
+    def terminate(self) -> None:
+        """Terminate the agent (mark as terminated)."""
+        self.update_status(AgentStatus.TERMINATED)
+        logger.info(f"Agent {self.name} has been terminated")
+    
+    def fail(self, error_message: str) -> None:
+        """
+        Mark the agent as failed.
+        
+        Args:
+            error_message: The error message
+        """
+        self.update_status(AgentStatus.FAILED)
+        logger.error(f"Agent {self.name} failed: {error_message}")
+    
+    def succeed(self) -> None:
+        """Mark the agent as successful."""
+        self.update_status(AgentStatus.SUCCESS)
+        logger.info(f"Agent {self.name} succeeded")
+    
+    def get_cache(self, key: str) -> Any:
         """
         Get a value from the agent's cache.
         
         Args:
-            key: The key to retrieve
-            default: The default value if key is not found
+            key: The cache key
             
         Returns:
-            The cached value or default
+            The cached value, or None if not found
         """
-        return self.cache.get(key, default)
+        try:
+            with db_session() as session:
+                agent = session.query(AgentModel).filter(AgentModel.id == self.db_id).first()
+                if agent and agent.cache:
+                    return agent.cache.get(key)
+                return None
+        except Exception as e:
+            logger.error(f"Error getting cache: {str(e)}")
+            return None
     
-    def clear_cache(self) -> None:
-        """Clear the agent's cache."""
-        self.cache = {}
+    def set_cache(self, key: str, value: Any) -> None:
+        """
+        Set a value in the agent's cache.
         
-        if self.db_id:
+        Args:
+            key: The cache key
+            value: The value to cache
+        """
+        try:
             with db_session() as session:
                 agent = session.query(AgentModel).filter(AgentModel.id == self.db_id).first()
                 if agent:
-                    agent.clear_cache()
+                    cache: Dict[str, Any] = agent.cache or {}
+                    cache[key] = value
+                    agent.cache = cache
+                    session.commit()
+        except Exception as e:
+            logger.error(f"Error setting cache: {str(e)}")
     
-    def update_metrics(self, success: bool = True) -> None:
-        """
-        Update the agent's performance metrics.
-        
-        Args:
-            success: Whether the operation was successful
-        """
-        if not self.db_id:
-            return
-            
-        with db_session() as session:
-            agent = session.query(AgentModel).filter(AgentModel.id == self.db_id).first()
-            if agent:
-                agent.update_metrics(success)
-    
-    def sleep(self) -> None:
-        """Put the agent to sleep (inactive but retaining state)."""
-        logger.info(f"Putting agent {self.name} to sleep")
-        self.update_status(AgentStatus.SLEEPING)
-    
-    def wake(self) -> None:
-        """Wake up a sleeping agent."""
-        logger.info(f"Waking up agent {self.name}")
-        self.update_status(AgentStatus.ACTIVE)
-    
-    def terminate(self) -> None:
-        """Terminate the agent."""
-        logger.info(f"Terminating agent {self.name}")
-        self.update_status(AgentStatus.TERMINATED)
-    
-    @abstractmethod
-    async def run(self, *args, **kwargs) -> Any:
-        """
-        Run the agent's main functionality.
-        
-        This method must be implemented by all agent subclasses.
-        """
-        pass
+    def clear_cache(self) -> None:
+        """Clear the agent's cache."""
+        try:
+            with db_session() as session:
+                agent = session.query(AgentModel).filter(AgentModel.id == self.db_id).first()
+                if agent:
+                    agent.cache = {}
+                    session.commit()
+        except Exception as e:
+            logger.error(f"Error clearing cache: {str(e)}")
