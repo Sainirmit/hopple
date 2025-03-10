@@ -1,3 +1,7 @@
+"use client";
+
+import React, { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -22,21 +26,68 @@ import {
   PenSquare,
   Plus,
   Users,
+  Upload,
+  Trash2,
+  CheckCircle,
+  XCircle,
+  AlertCircle,
+  Edit,
+  Info,
+  Flag,
+  Circle,
 } from "lucide-react";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { TaskList } from "@/components/task-list";
+import { TaskBoard } from "@/components/task-board";
+import { AddTaskButton } from "@/components/add-task-button";
+import Link from "next/link";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 
 // Define the correct type for the page props
 type Props = {
-  params: {
+  params: Promise<{
     id: string;
-  };
+  }>;
 };
 
+// Define the expected shape of the params
+interface RouteParams {
+  id: string;
+}
+
 export default function ProjectDetailPage({ params }: Props) {
+  // Unwrap params using React.use()
+  const resolvedParams = React.use(params);
+  const { id } = resolvedParams;
+
+  // Get query parameters to determine active tab
+  const searchParams = useSearchParams();
+  const tabParam = searchParams.get("tab");
+
+  // Set the active tab based on the query parameter or default to "overview"
+  const [activeTab, setActiveTab] = useState(tabParam || "overview");
+
+  // Update activeTab if the query parameter changes
+  useEffect(() => {
+    if (tabParam) {
+      setActiveTab(tabParam);
+    }
+  }, [tabParam]);
+
   // This would normally be fetched from an API based on the ID
   const project = {
-    id: params.id,
+    id,
     title: "Website Redesign",
     description:
       "Modernize company website with new branding and improved user experience",
@@ -112,10 +163,10 @@ export default function ProjectDetailPage({ params }: Props) {
       <main className="flex-1 p-6">
         <div className="mb-6">
           <Button variant="outline" size="sm" asChild>
-            <a href="/dashboard">
+            <Link href="/dashboard">
               <ChevronLeft className="mr-2 h-4 w-4" />
               Back to Dashboard
-            </a>
+            </Link>
           </Button>
         </div>
 
@@ -131,14 +182,17 @@ export default function ProjectDetailPage({ params }: Props) {
                 <Download className="mr-2 h-4 w-4" />
                 Export
               </Button>
-              <Button variant="outline">
-                <PenSquare className="mr-2 h-4 w-4" />
-                Edit
+              <Button variant="outline" asChild>
+                <Link href={`/projects/${id}/edit`}>
+                  <PenSquare className="mr-2 h-4 w-4" />
+                  Edit
+                </Link>
               </Button>
-              <Button className="bg-gradient-to-r from-[#6E2CF4] to-[#FF2B8F] hover:opacity-90">
-                <Plus className="mr-2 h-4 w-4" />
-                Add Task
-              </Button>
+              <AddTaskButton
+                projectId={id}
+                projectName={project.title}
+                className="bg-gradient-to-r from-[#6E2CF4] to-[#FF2B8F] hover:opacity-90"
+              />
             </div>
           </div>
 
@@ -242,7 +296,11 @@ export default function ProjectDetailPage({ params }: Props) {
           </div>
 
           {/* Project Tabs */}
-          <Tabs defaultValue="overview" className="w-full">
+          <Tabs
+            value={activeTab}
+            onValueChange={setActiveTab}
+            className="w-full"
+          >
             <TabsList className="grid w-full grid-cols-6">
               <TabsTrigger value="overview">Overview</TabsTrigger>
               <TabsTrigger value="tasks">Tasks</TabsTrigger>
@@ -417,17 +475,17 @@ export default function ProjectDetailPage({ params }: Props) {
                       <FileText className="mr-2 h-4 w-4" />
                       Export
                     </Button>
-                    <Button
+                    <AddTaskButton
+                      projectId={id}
+                      projectName={project.title}
                       size="sm"
                       className="bg-gradient-to-r from-[#6E2CF4] to-[#FF2B8F] hover:opacity-90"
-                    >
-                      <Plus className="mr-2 h-4 w-4" />
-                      Add Task
-                    </Button>
+                      defaultStatus="To Do"
+                    />
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <TaskList projectId={params.id} />
+                  <TaskBoard projectId={id} projectName={project.title} />
                 </CardContent>
               </Card>
             </TabsContent>
@@ -435,10 +493,21 @@ export default function ProjectDetailPage({ params }: Props) {
             <TabsContent value="team" className="mt-6">
               <Card>
                 <CardHeader>
-                  <CardTitle>Team Members</CardTitle>
-                  <CardDescription>
-                    Project team and their roles
-                  </CardDescription>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle>Team Members</CardTitle>
+                      <CardDescription>
+                        Project team and their roles
+                      </CardDescription>
+                    </div>
+                    <Button
+                      className="bg-gradient-to-r from-[#6E2CF4] to-[#FF2B8F] hover:opacity-90"
+                      size="sm"
+                    >
+                      <Plus className="mr-2 h-4 w-4" />
+                      Add Team Member
+                    </Button>
+                  </div>
                 </CardHeader>
                 <CardContent>
                   <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -466,10 +535,28 @@ export default function ProjectDetailPage({ params }: Props) {
                                 <MessageSquare className="mr-2 h-4 w-4" />
                                 Message
                               </Button>
-                              <Button variant="outline" size="sm">
-                                <Users className="mr-2 h-4 w-4" />
-                                Profile
-                              </Button>
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button variant="outline" size="sm">
+                                    <MoreHorizontal className="h-4 w-4" />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent>
+                                  <DropdownMenuItem>
+                                    <Edit className="mr-2 h-4 w-4" />
+                                    Edit Role
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem>
+                                    <Users className="mr-2 h-4 w-4" />
+                                    View Profile
+                                  </DropdownMenuItem>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem className="text-destructive">
+                                    <Trash2 className="mr-2 h-4 w-4" />
+                                    Remove from Project
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
                             </div>
                           </div>
                         </CardContent>
@@ -500,15 +587,137 @@ export default function ProjectDetailPage({ params }: Props) {
             <TabsContent value="documents" className="mt-6">
               <Card>
                 <CardHeader>
-                  <CardTitle>Project Documents</CardTitle>
-                  <CardDescription>
-                    Files and resources for this project
-                  </CardDescription>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle>Project Documents</CardTitle>
+                      <CardDescription>
+                        Files and resources for this project
+                      </CardDescription>
+                    </div>
+                    <Button
+                      className="bg-gradient-to-r from-[#6E2CF4] to-[#FF2B8F] hover:opacity-90"
+                      size="sm"
+                    >
+                      <Upload className="mr-2 h-4 w-4" />
+                      Upload File
+                    </Button>
+                  </div>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-center text-muted-foreground py-12">
-                    Document section coming soon...
-                  </p>
+                  <div className="space-y-6">
+                    {/* Document upload area */}
+                    <div className="border-2 border-dashed rounded-lg p-10 text-center">
+                      <div className="flex flex-col items-center">
+                        <Upload className="h-10 w-10 text-muted-foreground mb-4" />
+                        <h3 className="text-lg font-medium mb-1">
+                          Upload Documents
+                        </h3>
+                        <p className="text-sm text-muted-foreground mb-4">
+                          Drag and drop files here or click to browse
+                        </p>
+                        <Input
+                          type="file"
+                          className="hidden"
+                          id="document-upload"
+                          multiple
+                        />
+                        <Button size="sm" asChild>
+                          <Label htmlFor="document-upload">Choose Files</Label>
+                        </Button>
+                      </div>
+                    </div>
+
+                    {/* Recent documents list */}
+                    <div>
+                      <h3 className="text-lg font-medium mb-3">
+                        Recent Documents
+                      </h3>
+                      <div className="space-y-2">
+                        {[
+                          {
+                            name: "Project Proposal",
+                            type: "PDF",
+                            size: "2.4 MB",
+                            date: "Mar 05, 2025",
+                            owner: "John Smith",
+                          },
+                          {
+                            name: "Design Assets",
+                            type: "ZIP",
+                            size: "34.2 MB",
+                            date: "Mar 07, 2025",
+                            owner: "Sarah Wilson",
+                          },
+                          {
+                            name: "User Research",
+                            type: "DOCX",
+                            size: "1.8 MB",
+                            date: "Mar 08, 2025",
+                            owner: "Emma Davis",
+                          },
+                          {
+                            name: "Meeting Notes",
+                            type: "PDF",
+                            size: "0.5 MB",
+                            date: "Mar 09, 2025",
+                            owner: "Mike Johnson",
+                          },
+                        ].map((doc, i) => (
+                          <div
+                            key={i}
+                            className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50"
+                          >
+                            <div className="flex items-center gap-3">
+                              <FileText className="h-8 w-8 text-primary" />
+                              <div>
+                                <p className="font-medium">{doc.name}</p>
+                                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                  <span>
+                                    {doc.type} • {doc.size}
+                                  </span>
+                                  <span>•</span>
+                                  <span>Uploaded {doc.date}</span>
+                                  <span>•</span>
+                                  <span>by {doc.owner}</span>
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Button variant="ghost" size="sm">
+                                <Download className="h-4 w-4" />
+                              </Button>
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button variant="ghost" size="sm">
+                                    <MoreHorizontal className="h-4 w-4" />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  <DropdownMenuItem>
+                                    <Download className="mr-2 h-4 w-4" />
+                                    Download
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem>
+                                    <Edit className="mr-2 h-4 w-4" />
+                                    Rename
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem>
+                                    <FileText className="mr-2 h-4 w-4" />
+                                    View Details
+                                  </DropdownMenuItem>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem className="text-destructive">
+                                    <Trash2 className="mr-2 h-4 w-4" />
+                                    Delete
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
                 </CardContent>
               </Card>
             </TabsContent>
@@ -516,15 +725,172 @@ export default function ProjectDetailPage({ params }: Props) {
             <TabsContent value="timeline" className="mt-6">
               <Card>
                 <CardHeader>
-                  <CardTitle>Project Timeline</CardTitle>
-                  <CardDescription>
-                    Gantt chart and milestone tracking
-                  </CardDescription>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle>Project Timeline</CardTitle>
+                      <CardDescription>
+                        Gantt chart and milestone tracking
+                      </CardDescription>
+                    </div>
+                    <Button variant="outline" size="sm">
+                      <Download className="mr-2 h-4 w-4" />
+                      Export
+                    </Button>
+                  </div>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-center text-muted-foreground py-12">
-                    Timeline visualization coming soon...
-                  </p>
+                  {/* Timeline visualization (Sprint plan style) */}
+                  <div className="space-y-6">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-lg font-medium">Sprint Plan</h3>
+                      <div className="flex items-center gap-4 text-sm">
+                        <div className="flex items-center gap-1">
+                          <div className="w-3 h-3 rounded-full bg-emerald-500"></div>
+                          <span>Completed</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <div className="w-3 h-3 rounded-full bg-blue-500"></div>
+                          <span>In Progress</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <div className="w-3 h-3 rounded-full bg-slate-300 dark:bg-slate-700"></div>
+                          <span>Planned</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="relative">
+                      {/* Header row with dates */}
+                      <div className="flex border-b">
+                        <div className="w-1/4 p-3 font-medium">
+                          Sprint / Milestone
+                        </div>
+                        <div className="flex-1 grid grid-cols-4">
+                          {["Week 1", "Week 2", "Week 3", "Week 4"].map(
+                            (week, i) => (
+                              <div
+                                key={i}
+                                className="p-3 text-center font-medium"
+                              >
+                                {week}
+                              </div>
+                            )
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Sprint rows */}
+                      {[
+                        {
+                          name: "Sprint 1: Design",
+                          start: 0,
+                          duration: 1.5,
+                          status: "completed",
+                          tasks: 8,
+                          completedTasks: 8,
+                        },
+                        {
+                          name: "Sprint 2: Frontend",
+                          start: 1,
+                          duration: 2,
+                          status: "in-progress",
+                          tasks: 12,
+                          completedTasks: 5,
+                        },
+                        {
+                          name: "Sprint 3: Backend",
+                          start: 1.5,
+                          duration: 2,
+                          status: "planned",
+                          tasks: 10,
+                          completedTasks: 0,
+                        },
+                        {
+                          name: "Sprint 4: Testing",
+                          start: 3,
+                          duration: 1,
+                          status: "planned",
+                          tasks: 6,
+                          completedTasks: 0,
+                        },
+                      ].map((sprint, i) => (
+                        <div
+                          key={i}
+                          className="flex border-b hover:bg-muted/50"
+                        >
+                          <div className="w-1/4 p-3">
+                            <div className="font-medium">{sprint.name}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {sprint.completedTasks}/{sprint.tasks} tasks
+                            </div>
+                          </div>
+                          <div className="flex-1 relative py-3">
+                            <div
+                              className={`absolute h-6 rounded-md ${
+                                sprint.status === "completed"
+                                  ? "bg-emerald-500"
+                                  : sprint.status === "in-progress"
+                                  ? "bg-blue-500"
+                                  : "bg-slate-300 dark:bg-slate-700"
+                              }`}
+                              style={{
+                                left: `${sprint.start * 25}%`,
+                                width: `${sprint.duration * 25}%`,
+                              }}
+                            ></div>
+                          </div>
+                        </div>
+                      ))}
+
+                      {/* Milestones */}
+                      <div className="mt-8">
+                        <h4 className="font-medium mb-4">Key Milestones</h4>
+                        <div className="space-y-4">
+                          {[
+                            {
+                              name: "Design Approval",
+                              date: "Mar 05, 2025",
+                              status: "completed",
+                            },
+                            {
+                              name: "Alpha Release",
+                              date: "Mar 15, 2025",
+                              status: "in-progress",
+                            },
+                            {
+                              name: "Beta Testing",
+                              date: "Mar 22, 2025",
+                              status: "planned",
+                            },
+                            {
+                              name: "Production Launch",
+                              date: "Mar 30, 2025",
+                              status: "planned",
+                            },
+                          ].map((milestone, i) => (
+                            <div
+                              key={i}
+                              className="flex items-center gap-3 p-3 border rounded-lg"
+                            >
+                              {milestone.status === "completed" ? (
+                                <CheckCircle className="h-5 w-5 text-emerald-500" />
+                              ) : milestone.status === "in-progress" ? (
+                                <Clock className="h-5 w-5 text-blue-500" />
+                              ) : (
+                                <Circle className="h-5 w-5 text-muted-foreground" />
+                              )}
+                              <div>
+                                <p className="font-medium">{milestone.name}</p>
+                                <p className="text-sm text-muted-foreground">
+                                  {milestone.date}
+                                </p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </CardContent>
               </Card>
             </TabsContent>
@@ -537,10 +903,123 @@ export default function ProjectDetailPage({ params }: Props) {
                     Manage project configuration
                   </CardDescription>
                 </CardHeader>
-                <CardContent>
-                  <p className="text-center text-muted-foreground py-12">
-                    Settings panel coming soon...
-                  </p>
+                <CardContent className="space-y-6">
+                  {/* Project Details */}
+                  <div className="space-y-4">
+                    <h3 className="text-lg font-medium">Project Details</h3>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="grid gap-2">
+                        <Label htmlFor="project-name">Project Name</Label>
+                        <Input id="project-name" defaultValue={project.title} />
+                      </div>
+                      <div className="grid gap-2">
+                        <Label htmlFor="project-status">Status</Label>
+                        <Input
+                          id="project-status"
+                          defaultValue={project.status}
+                        />
+                      </div>
+                      <div className="grid gap-2 sm:col-span-2">
+                        <Label htmlFor="project-description">Description</Label>
+                        <Textarea
+                          id="project-description"
+                          defaultValue={project.description}
+                          rows={3}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="grid gap-2">
+                        <Label htmlFor="start-date">Start Date</Label>
+                        <Input
+                          id="start-date"
+                          defaultValue={project.startDate}
+                        />
+                      </div>
+                      <div className="grid gap-2">
+                        <Label htmlFor="due-date">Due Date</Label>
+                        <Input id="due-date" defaultValue={project.dueDate} />
+                      </div>
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  {/* Notifications */}
+                  <div className="space-y-4">
+                    <h3 className="text-lg font-medium">Notifications</h3>
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="space-y-0.5">
+                          <Label htmlFor="new-task">
+                            New task notifications
+                          </Label>
+                          <p className="text-sm text-muted-foreground">
+                            Receive notifications when new tasks are created
+                          </p>
+                        </div>
+                        <Switch id="new-task" defaultChecked />
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <div className="space-y-0.5">
+                          <Label htmlFor="task-updates">Task updates</Label>
+                          <p className="text-sm text-muted-foreground">
+                            Receive notifications when tasks are updated
+                          </p>
+                        </div>
+                        <Switch id="task-updates" defaultChecked />
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <div className="space-y-0.5">
+                          <Label htmlFor="milestone">Milestone alerts</Label>
+                          <p className="text-sm text-muted-foreground">
+                            Receive notifications when milestones are reached
+                          </p>
+                        </div>
+                        <Switch id="milestone" defaultChecked />
+                      </div>
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  {/* Danger Zone */}
+                  <div className="space-y-4">
+                    <h3 className="text-lg font-medium text-destructive">
+                      Danger Zone
+                    </h3>
+                    <div className="rounded-lg border border-destructive/50 p-4 space-y-4">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <h4 className="font-medium">Archive Project</h4>
+                          <p className="text-sm text-muted-foreground">
+                            Archive this project to hide it from active projects
+                            list
+                          </p>
+                        </div>
+                        <Button variant="outline" size="sm">
+                          Archive Project
+                        </Button>
+                      </div>
+                      <Separator />
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <h4 className="font-medium text-destructive">
+                            Delete Project
+                          </h4>
+                          <p className="text-sm text-muted-foreground">
+                            This action cannot be undone. This will permanently
+                            delete this project and all associated data.
+                          </p>
+                        </div>
+                        <Button variant="destructive" size="sm">
+                          <Trash2 className="mr-2 h-4 w-4" />
+                          Delete Project
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
                 </CardContent>
               </Card>
             </TabsContent>
