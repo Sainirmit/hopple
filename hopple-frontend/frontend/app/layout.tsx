@@ -7,6 +7,7 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SidebarInset } from "@/components/ui/sidebar";
 import { ToastProvider } from "@/components/ui/use-toast";
+import { AuthProvider } from "@/lib/auth-context";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -30,16 +31,18 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          <ToastProvider>
-            <div className="flex h-screen overflow-hidden">
-              <SidebarProvider>
-                <AppSidebar />
-                <SidebarInset className="w-full overflow-auto">
-                  <div className="min-h-full">{children}</div>
-                </SidebarInset>
-              </SidebarProvider>
-            </div>
-          </ToastProvider>
+          <AuthProvider>
+            <ToastProvider>
+              <div className="flex h-screen overflow-hidden">
+                <SidebarProvider>
+                  <AppSidebar />
+                  <SidebarInset className="w-full overflow-auto">
+                    <div className="min-h-full">{children}</div>
+                  </SidebarInset>
+                </SidebarProvider>
+              </div>
+            </ToastProvider>
+          </AuthProvider>
         </ThemeProvider>
       </body>
     </html>

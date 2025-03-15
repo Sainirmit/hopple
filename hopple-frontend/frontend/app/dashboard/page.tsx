@@ -10,7 +10,6 @@ import {
   Calendar,
   ChevronRight,
   Clock,
-  Cpu,
   FileText,
   FolderKanban,
   LineChart,
@@ -21,22 +20,87 @@ import {
 } from "lucide-react";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { ProjectCard } from "@/components/project-card";
-import { AgentCard } from "@/components/agent-card";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
+import { useAuth } from "@/lib/auth-context";
+import { Project, projectsApi, tasksApi } from "@/lib/api";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
 export default function DashboardPage() {
   const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState("projects");
+  const { user } = useAuth();
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [stats, setStats] = useState({
+    totalProjects: 0,
+    activeTasks: 0,
+    completedTasks: 0,
+    teamMembers: 0,
+  });
 
   // Read the tab parameter from the URL when the component mounts
   useEffect(() => {
     const tabParam = searchParams.get("tab");
-    if (tabParam && ["projects", "analytics", "agents"].includes(tabParam)) {
+    if (tabParam && ["projects", "analytics"].includes(tabParam)) {
       setActiveTab(tabParam);
     }
   }, [searchParams]);
+
+  // Fetch projects when component mounts
+  useEffect(() => {
+    const fetchProjects = async () => {
+      try {
+        setLoading(true);
+        const projectsData = await projectsApi.getProjects();
+        setProjects(projectsData);
+
+        // Update stats
+        setStats((prev) => ({
+          ...prev,
+          totalProjects: projectsData.length,
+        }));
+
+        // Fetch tasks for each project to calculate stats
+        let activeTasks = 0;
+        let completedTasks = 0;
+
+        for (const project of projectsData) {
+          try {
+            const tasks = await tasksApi.getProjectTasks(project.id);
+            activeTasks += tasks.filter(
+              (task) => task.status !== "completed"
+            ).length;
+            completedTasks += tasks.filter(
+              (task) => task.status === "completed"
+            ).length;
+          } catch (err) {
+            console.error(
+              `Error fetching tasks for project ${project.id}:`,
+              err
+            );
+          }
+        }
+
+        setStats((prev) => ({
+          ...prev,
+          activeTasks,
+          completedTasks,
+          // This would ideally come from a team members API
+          teamMembers: 8,
+        }));
+      } catch (err: any) {
+        console.error("Error fetching projects:", err);
+        setError(err.response?.data?.message || "Failed to load projects");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchProjects();
+  }, []);
 
   return (
     <div className="flex flex-col min-h-screen">
@@ -46,19 +110,17 @@ export default function DashboardPage() {
         <div className="flex flex-col gap-6">
           <section className="space-y-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-3xl font-bold">Welcome back, John</h2>
+              <h2 className="text-3xl font-bold">
+                Welcome back, {user?.name?.split(" ")[0] || "User"}
+              </h2>
               <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm" asChild>
-                  <Link href="/dashboard?timeframe=today">
-                    <Calendar className="mr-2 h-4 w-4" />
-                    Today
-                  </Link>
+                <Button variant="outline" size="sm">
+                  <Clock className="mr-2 h-4 w-4" />
+                  Activity
                 </Button>
-                <Button variant="outline" size="sm" asChild>
-                  <Link href="/dashboard?timeframe=week">
-                    <Clock className="mr-2 h-4 w-4" />
-                    This Week
-                  </Link>
+                <Button variant="outline" size="sm">
+                  <Settings className="mr-2 h-4 w-4" />
+                  Settings
                 </Button>
               </div>
             </div>
@@ -67,77 +129,81 @@ export default function DashboardPage() {
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium">
-                    Active Projects
+                    Total Projects
                   </CardTitle>
                   <FolderKanban className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">12</div>
+                  <div className="text-2xl font-bold">
+                    {stats.totalProjects}
+                  </div>
                   <p className="text-xs text-muted-foreground">
-                    +2 from last month
+                    {stats.totalProjects > 0
+                      ? "Active projects"
+                      : "No projects yet"}
                   </p>
                 </CardContent>
               </Card>
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium">
-                    Total Tasks
+                    Active Tasks
                   </CardTitle>
                   <FileText className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">248</div>
+                  <div className="text-2xl font-bold">{stats.activeTasks}</div>
                   <p className="text-xs text-muted-foreground">
-                    36 due within 7 days
+                    Tasks in progress
                   </p>
                 </CardContent>
               </Card>
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium">
-                    Team Utilization
+                    Completed Tasks
                   </CardTitle>
-                  <Settings className="h-4 w-4 text-muted-foreground" />
+                  <TrendingUp className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">87%</div>
-                  <Progress value={87} className="h-2" />
+                  <div className="text-2xl font-bold">
+                    {stats.completedTasks}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Tasks completed
+                  </p>
                 </CardContent>
               </Card>
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium">
-                    AI Agent Activity
+                    Team Members
                   </CardTitle>
-                  <Cpu className="h-4 w-4 text-muted-foreground" />
+                  <BarChart3 className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">4/4</div>
+                  <div className="text-2xl font-bold">{stats.teamMembers}</div>
                   <p className="text-xs text-muted-foreground">
-                    All agents active
+                    Active members
                   </p>
                 </CardContent>
               </Card>
             </div>
           </section>
 
-          <section>
-            <Tabs
-              value={activeTab}
-              onValueChange={setActiveTab}
-              className="w-full"
-            >
+          <Tabs
+            value={activeTab}
+            onValueChange={setActiveTab}
+            className="space-y-4"
+          >
+            <TabsList>
+              <TabsTrigger value="projects">Projects</TabsTrigger>
+              <TabsTrigger value="analytics">Analytics</TabsTrigger>
+            </TabsList>
+            <TabsContent value="projects" className="space-y-4">
               <div className="flex items-center justify-between">
-                <TabsList>
-                  <TabsTrigger value="projects">Projects</TabsTrigger>
-                  <TabsTrigger value="analytics">Analytics</TabsTrigger>
-                  <TabsTrigger value="agents">AI Agents</TabsTrigger>
-                </TabsList>
-                <Button
-                  size="sm"
-                  className="bg-gradient-to-r from-[#6E2CF4] to-[#FF2B8F] hover:opacity-90"
-                  asChild
-                >
+                <h2 className="text-xl font-semibold">Recent Projects</h2>
+                <Button asChild>
                   <Link href="/projects/new">
                     <Plus className="mr-2 h-4 w-4" />
                     New Project
@@ -145,234 +211,117 @@ export default function DashboardPage() {
                 </Button>
               </div>
 
-              <TabsContent value="projects" className="mt-6">
-                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                  <ProjectCard
-                    title="Website Redesign"
-                    description="Modernize company website with new branding"
-                    progress={75}
-                    dueDate="Mar 15, 2025"
-                    tasks={{ completed: 18, total: 24 }}
-                    members={[
-                      {
-                        name: "Alex",
-                        image: "/placeholder.svg?height=40&width=40",
-                      },
-                      {
-                        name: "Sarah",
-                        image: "/placeholder.svg?height=40&width=40",
-                      },
-                      {
-                        name: "Mike",
-                        image: "/placeholder.svg?height=40&width=40",
-                      },
-                    ]}
-                    agentStatus="active"
-                  />
-                  <ProjectCard
-                    title="Mobile App Development"
-                    description="Create iOS and Android apps for customers"
-                    progress={45}
-                    dueDate="Apr 30, 2025"
-                    tasks={{ completed: 12, total: 32 }}
-                    members={[
-                      {
-                        name: "Jane",
-                        image: "/placeholder.svg?height=40&width=40",
-                      },
-                      {
-                        name: "Tom",
-                        image: "/placeholder.svg?height=40&width=40",
-                      },
-                      {
-                        name: "Lisa",
-                        image: "/placeholder.svg?height=40&width=40",
-                      },
-                      {
-                        name: "David",
-                        image: "/placeholder.svg?height=40&width=40",
-                      },
-                    ]}
-                    agentStatus="active"
-                  />
-                  <ProjectCard
-                    title="Marketing Campaign"
-                    description="Q2 product launch marketing strategy"
-                    progress={20}
-                    dueDate="May 10, 2025"
-                    tasks={{ completed: 5, total: 18 }}
-                    members={[
-                      {
-                        name: "Emma",
-                        image: "/placeholder.svg?height=40&width=40",
-                      },
-                      {
-                        name: "John",
-                        image: "/placeholder.svg?height=40&width=40",
-                      },
-                    ]}
-                    agentStatus="active"
-                  />
-                </div>
-                <Button variant="outline" className="mt-4 w-full" asChild>
-                  <Link href="/projects">
-                    View All Projects
-                    <ChevronRight className="ml-2 h-4 w-4" />
-                  </Link>
-                </Button>
-              </TabsContent>
+              {error && (
+                <Alert variant="destructive">
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              )}
 
-              <TabsContent value="analytics" className="mt-6">
-                <div className="grid gap-4 md:grid-cols-2">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Project Completion Rates</CardTitle>
-                    </CardHeader>
-                    <CardContent className="h-80 flex items-center justify-center">
-                      <div className="w-full h-full flex flex-col items-center justify-center text-muted-foreground">
-                        <BarChart3 className="h-16 w-16 mb-4" />
-                        <p>Analytics chart will be displayed here</p>
+              {loading ? (
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                  {[1, 2, 3].map((i) => (
+                    <Card key={i} className="p-6 animate-pulse">
+                      <div className="h-6 w-3/4 bg-muted rounded mb-4"></div>
+                      <div className="h-4 w-full bg-muted rounded mb-6"></div>
+                      <div className="h-2 w-full bg-muted rounded mb-2"></div>
+                      <div className="h-8 w-full bg-muted rounded mb-4"></div>
+                      <div className="flex justify-between">
+                        <div className="h-8 w-1/3 bg-muted rounded"></div>
+                        <div className="flex space-x-1">
+                          {[1, 2, 3].map((j) => (
+                            <div
+                              key={j}
+                              className="h-8 w-8 bg-muted rounded-full"
+                            ></div>
+                          ))}
+                        </div>
                       </div>
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Team Productivity</CardTitle>
-                    </CardHeader>
-                    <CardContent className="h-80 flex items-center justify-center">
-                      <div className="w-full h-full flex flex-col items-center justify-center text-muted-foreground">
-                        <LineChart className="h-16 w-16 mb-4" />
-                        <p>Productivity metrics will be displayed here</p>
-                      </div>
-                    </CardContent>
-                  </Card>
-                  <Card className="md:col-span-2">
-                    <CardHeader>
-                      <CardTitle>Project Performance</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-4">
-                        {[
-                          { project: "Website Redesign", rate: 92 },
-                          { project: "Mobile App Development", rate: 78 },
-                          { project: "Marketing Campaign", rate: 85 },
-                          { project: "CRM Implementation", rate: 62 },
-                        ].map((item, i) => (
-                          <div key={i} className="space-y-2">
-                            <div className="flex items-center justify-between">
-                              <span className="font-medium">
-                                {item.project}
-                              </span>
-                              <span
-                                className={
-                                  item.rate > 80
-                                    ? "text-emerald-500"
-                                    : item.rate > 60
-                                    ? "text-amber-500"
-                                    : "text-destructive"
-                                }
-                              >
-                                {item.rate}%
-                              </span>
-                            </div>
-                            <Progress value={item.rate} className="h-2" />
-                          </div>
-                        ))}
-                      </div>
-                    </CardContent>
-                  </Card>
-                </div>
-              </TabsContent>
-
-              <TabsContent value="agents" className="mt-6">
-                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                  <AgentCard
-                    name="Task Creator"
-                    description="Generates tasks from project requirements"
-                    status="Active"
-                    activity="Generated 8 tasks today"
-                    performance={92}
-                  />
-                  <AgentCard
-                    name="Prioritizer"
-                    description="Organizes tasks by importance and deadline"
-                    status="Active"
-                    activity="Reprioritized 15 tasks"
-                    performance={88}
-                  />
-                  <AgentCard
-                    name="Worker Assigner"
-                    description="Matches team members to appropriate tasks"
-                    status="Active"
-                    activity="Assigned 12 tasks to team"
-                    performance={85}
-                  />
-                  <AgentCard
-                    name="Meeting Summarizer"
-                    description="Creates summaries and action items from meetings"
-                    status="Active"
-                    activity="Summarized 3 meetings"
-                    performance={90}
-                  />
-                </div>
-              </TabsContent>
-            </Tabs>
-          </section>
-
-          <section className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xl font-semibold">Recent Activity</h3>
-              <Button variant="ghost" size="sm" asChild>
-                <Link href="/activity">
-                  View All
-                  <ChevronRight className="ml-2 h-4 w-4" />
-                </Link>
-              </Button>
-            </div>
-            <Card>
-              <CardContent className="p-0">
-                <div className="divide-y divide-border">
-                  {[1, 2, 3, 4, 5].map((item) => (
-                    <div key={item} className="flex items-center gap-4 p-4">
-                      <Avatar className="h-8 w-8">
-                        <AvatarImage
-                          src={`/placeholder.svg?height=32&width=32`}
-                        />
-                        <AvatarFallback>U{item}</AvatarFallback>
-                      </Avatar>
-                      <div className="flex-1 space-y-1">
-                        <p className="text-sm font-medium leading-none">
-                          {
-                            [
-                              "Sarah completed task",
-                              "AI created 3 new tasks",
-                              "Mike updated project status",
-                              "Emma assigned task to John",
-                              "AI reprioritized tasks",
-                            ][item - 1]
-                          }
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {
-                            [
-                              "10 minutes ago",
-                              "25 minutes ago",
-                              "1 hour ago",
-                              "3 hours ago",
-                              "5 hours ago",
-                            ][item - 1]
-                          }
-                        </p>
-                      </div>
-                      <Button variant="ghost" size="icon">
-                        <MoreHorizontal className="h-4 w-4" />
-                      </Button>
-                    </div>
+                    </Card>
                   ))}
                 </div>
-              </CardContent>
-            </Card>
-          </section>
+              ) : projects.length > 0 ? (
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                  {projects.slice(0, 3).map((project) => (
+                    <ProjectCard
+                      key={project.id}
+                      id={project.id}
+                      title={project.name}
+                      description={project.description || ""}
+                      progress={75} // This would ideally be calculated from tasks
+                      dueDate={
+                        project.dueDate
+                          ? new Date(project.dueDate).toLocaleDateString()
+                          : "No due date"
+                      }
+                      tasks={{ total: 0, completed: 0 }} // This would ideally be fetched from the API
+                      members={[]} // This would ideally be fetched from the API
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-12">
+                  <h3 className="text-lg font-medium mb-2">No projects yet</h3>
+                  <p className="text-muted-foreground mb-6">
+                    Create your first project to get started
+                  </p>
+                  <Button asChild>
+                    <Link href="/projects/new">
+                      <Plus className="mr-2 h-4 w-4" />
+                      Create Project
+                    </Link>
+                  </Button>
+                </div>
+              )}
+
+              {projects.length > 0 && (
+                <div className="flex items-center justify-center">
+                  <Button variant="outline" asChild>
+                    <Link href="/projects">
+                      View All Projects
+                      <ChevronRight className="ml-2 h-4 w-4" />
+                    </Link>
+                  </Button>
+                </div>
+              )}
+            </TabsContent>
+            <TabsContent value="analytics" className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-semibold">Project Analytics</h2>
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" size="sm">
+                    <Calendar className="mr-2 h-4 w-4" />
+                    Last 30 Days
+                  </Button>
+                  <Button variant="outline" size="sm">
+                    <LineChart className="mr-2 h-4 w-4" />
+                    Export
+                  </Button>
+                </div>
+              </div>
+              <div className="grid gap-4 md:grid-cols-2">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Task Completion Rate</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="h-80 flex items-center justify-center bg-muted/20 rounded-md">
+                      <p className="text-muted-foreground">Chart placeholder</p>
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Project Progress</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="h-80 flex items-center justify-center bg-muted/20 rounded-md">
+                      <p className="text-muted-foreground">Chart placeholder</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </TabsContent>
+          </Tabs>
         </div>
       </main>
     </div>

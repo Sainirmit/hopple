@@ -1,36 +1,108 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Hopple Frontend
+
+This is the frontend for the Hopple application, built with Next.js.
 
 ## Getting Started
 
-First, run the development server:
+### Prerequisites
+
+- Node.js 18+ (recommended: use nvm to manage Node versions)
+- npm or yarn
+
+### Installation
+
+1. Clone the repository
+2. Navigate to the frontend directory:
+   ```bash
+   cd hopple-frontend/frontend
+   ```
+3. Install dependencies:
+   ```bash
+   npm install
+   # or
+   yarn install
+   ```
+
+### Development
+
+To start the development server:
 
 ```bash
 npm run dev
 # or
 yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Testing
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+To run tests:
 
-## Learn More
+```bash
+npm test
+# or
+yarn test
+```
 
-To learn more about Next.js, take a look at the following resources:
+To run tests in watch mode:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+npm run test:watch
+# or
+yarn test:watch
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### Building for Production
 
-## Deploy on Vercel
+To build the application for production:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```bash
+npm run build
+# or
+yarn build
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+To start the production server:
+
+```bash
+npm run start
+# or
+yarn start
+```
+
+## API Routes
+
+The frontend includes API routes that proxy requests to the backend:
+
+- `/api/auth` - Authentication endpoints
+- `/api/projects` - Project management endpoints
+- `/api/projects/[id]/tasks` - Task management endpoints
+- `/api/agents` - AI agent endpoints
+
+## Backend Integration
+
+The frontend is configured to communicate with the backend running on `http://localhost:8000`. Make sure the backend server is running before using the frontend.
+
+## Environment Variables
+
+Create a `.env.local` file in the root directory with the following variables:
+
+```
+NEXT_PUBLIC_API_URL=http://localhost:8000
+```
+
+## Project Structure
+
+- `app/` - Next.js app directory
+  - `api/` - API routes
+  - `components/` - UI components
+  - `hooks/` - Custom React hooks
+  - `lib/` - Utility functions
+  - `types/` - TypeScript type definitions
+- `public/` - Static assets
+- `styles/` - Global styles
+
+## Contributing
+
+Please follow the project's coding standards and commit message conventions.

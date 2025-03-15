@@ -21,21 +21,55 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import Link from "next/link";
+import { useAuth } from "@/lib/auth-context";
+import { useRouter } from "next/navigation";
 
-export function DashboardHeader() {
+interface DashboardHeaderProps {
+  heading?: string;
+  text?: string;
+}
+
+export function DashboardHeader({ heading, text }: DashboardHeaderProps) {
+  const { user, logout } = useAuth();
+  const router = useRouter();
+
+  const handleLogout = () => {
+    logout();
+    router.push("/login");
+  };
+
+  // Get user initials for avatar fallback
+  const getInitials = () => {
+    if (!user?.name) return "U";
+
+    const nameParts = user.name.split(" ");
+    if (nameParts.length === 1) return nameParts[0].charAt(0).toUpperCase();
+
+    return (
+      nameParts[0].charAt(0) + nameParts[nameParts.length - 1].charAt(0)
+    ).toUpperCase();
+  };
+
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center gap-4 border-b bg-background px-4 md:px-6">
       <SidebarTrigger className="md:hidden" />
 
       <div className="w-full flex items-center justify-between">
-        <div className="relative w-full max-w-md">
-          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input
-            type="search"
-            placeholder="Search projects, tasks, and more..."
-            className="w-full bg-background pl-8 md:w-[300px] lg:w-[400px]"
-          />
-        </div>
+        {heading ? (
+          <div className="flex flex-col gap-1">
+            <h1 className="text-xl font-semibold">{heading}</h1>
+            {text && <p className="text-sm text-muted-foreground">{text}</p>}
+          </div>
+        ) : (
+          <div className="relative w-full max-w-md">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              type="search"
+              placeholder="Search projects, tasks, and more..."
+              className="w-full bg-background pl-8 md:w-[300px] lg:w-[400px]"
+            />
+          </div>
+        )}
 
         <div className="flex items-center gap-2">
           <DropdownMenu>
@@ -85,12 +119,16 @@ export function DashboardHeader() {
               <Button variant="outline" className="gap-2">
                 <Avatar className="h-6 w-6">
                   <AvatarImage
-                    src="/placeholder.svg?height=24&width=24"
-                    alt="User"
+                    src={
+                      user?.avatarUrl || "/placeholder.svg?height=24&width=24"
+                    }
+                    alt={user?.name || "User"}
                   />
-                  <AvatarFallback>JD</AvatarFallback>
+                  <AvatarFallback>{getInitials()}</AvatarFallback>
                 </Avatar>
-                <span className="hidden md:inline-flex">John Doe</span>
+                <span className="hidden md:inline-flex">
+                  {user?.name || "User"}
+                </span>
                 <ChevronDown className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
@@ -116,11 +154,14 @@ export function DashboardHeader() {
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem className="text-destructive">
-                <Link href="/login" className="flex w-full items-center">
+              <DropdownMenuItem
+                className="text-destructive cursor-pointer"
+                onClick={handleLogout}
+              >
+                <div className="flex w-full items-center">
                   <LogOut className="mr-2 h-4 w-4" />
                   <span>Log out</span>
-                </Link>
+                </div>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

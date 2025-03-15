@@ -32,7 +32,7 @@ interface ProjectCardProps {
     name: string;
     image: string;
   }[];
-  agentStatus: "active" | "inactive";
+  agentStatus?: "active" | "inactive";
   id?: string; // Add optional ID for the project
 }
 
@@ -58,6 +58,28 @@ export function ProjectCard({
     if (daysRemaining < 3) return "text-destructive";
     if (daysRemaining < 7) return "text-amber-500";
     return "text-emerald-500";
+  };
+
+  // Only render the agent status section if agentStatus is provided
+  const renderAgentStatus = () => {
+    if (!agentStatus) return null;
+
+    return (
+      <div className="flex items-center gap-1 text-xs">
+        <Cpu
+          className={`h-3 w-3 ${
+            agentStatus === "active" ? "text-emerald-500" : "text-gray-400"
+          }`}
+        />
+        <span
+          className={
+            agentStatus === "active" ? "text-emerald-500" : "text-gray-400"
+          }
+        >
+          {agentStatus === "active" ? "AI Active" : "AI Inactive"}
+        </span>
+      </div>
+    );
   };
 
   return (
@@ -140,16 +162,7 @@ export function ProjectCard({
               </div>
             )}
           </div>
-          <div
-            className={`flex items-center gap-1.5 text-xs ${
-              agentStatus === "active"
-                ? "text-emerald-500"
-                : "text-muted-foreground"
-            }`}
-          >
-            <Cpu className="h-3.5 w-3.5" />
-            <span className="font-medium capitalize">{agentStatus}</span>
-          </div>
+          {renderAgentStatus()}
         </CardFooter>
       </Link>
     </Card>

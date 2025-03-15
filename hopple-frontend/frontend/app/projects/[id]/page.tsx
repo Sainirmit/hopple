@@ -40,6 +40,7 @@ import { DashboardHeader } from "@/components/dashboard-header";
 import { TaskList } from "@/components/task-list";
 import { TaskBoard } from "@/components/task-board";
 import { AddTaskButton } from "@/components/add-task-button";
+import { OrchestratorWorkflow } from "@/components/orchestrator-workflow";
 import Link from "next/link";
 import {
   DropdownMenu,
@@ -73,17 +74,15 @@ export default function ProjectDetailPage({ params }: Props) {
 
   // Get query parameters to determine active tab
   const searchParams = useSearchParams();
-  const tabParam = searchParams.get("tab");
-
-  // Set the active tab based on the query parameter or default to "overview"
-  const [activeTab, setActiveTab] = useState(tabParam || "overview");
+  const initialTab = searchParams.get("tab") || "overview";
+  const [activeTab, setActiveTab] = useState(initialTab);
 
   // Update activeTab if the query parameter changes
   useEffect(() => {
-    if (tabParam) {
-      setActiveTab(tabParam);
+    if (initialTab) {
+      setActiveTab(initialTab);
     }
-  }, [tabParam]);
+  }, [initialTab]);
 
   // This would normally be fetched from an API based on the ID
   const project = {
@@ -301,12 +300,13 @@ export default function ProjectDetailPage({ params }: Props) {
             onValueChange={setActiveTab}
             className="w-full"
           >
-            <TabsList className="grid w-full grid-cols-6">
+            <TabsList className="grid w-full grid-cols-7">
               <TabsTrigger value="overview">Overview</TabsTrigger>
               <TabsTrigger value="tasks">Tasks</TabsTrigger>
               <TabsTrigger value="team">Team</TabsTrigger>
               <TabsTrigger value="documents">Documents</TabsTrigger>
               <TabsTrigger value="timeline">Timeline</TabsTrigger>
+              <TabsTrigger value="ai">AI</TabsTrigger>
               <TabsTrigger value="settings">Settings</TabsTrigger>
             </TabsList>
 
@@ -722,180 +722,72 @@ export default function ProjectDetailPage({ params }: Props) {
               </Card>
             </TabsContent>
 
-            <TabsContent value="timeline" className="mt-6">
+            <TabsContent value="timeline" className="mt-6 space-y-6">
+              {/* Timeline content */}
               <Card>
                 <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <CardTitle>Project Timeline</CardTitle>
-                      <CardDescription>
-                        Gantt chart and milestone tracking
-                      </CardDescription>
-                    </div>
-                    <Button variant="outline" size="sm">
-                      <Download className="mr-2 h-4 w-4" />
-                      Export
-                    </Button>
-                  </div>
+                  <CardTitle>Project Timeline</CardTitle>
+                  <CardDescription>
+                    View the project schedule and milestones
+                  </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  {/* Timeline visualization (Sprint plan style) */}
-                  <div className="space-y-6">
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-lg font-medium">Sprint Plan</h3>
-                      <div className="flex items-center gap-4 text-sm">
-                        <div className="flex items-center gap-1">
-                          <div className="w-3 h-3 rounded-full bg-emerald-500"></div>
-                          <span>Completed</span>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <div className="w-3 h-3 rounded-full bg-blue-500"></div>
-                          <span>In Progress</span>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <div className="w-3 h-3 rounded-full bg-slate-300 dark:bg-slate-700"></div>
-                          <span>Planned</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="relative">
-                      {/* Header row with dates */}
-                      <div className="flex border-b">
-                        <div className="w-1/4 p-3 font-medium">
-                          Sprint / Milestone
-                        </div>
-                        <div className="flex-1 grid grid-cols-4">
-                          {["Week 1", "Week 2", "Week 3", "Week 4"].map(
-                            (week, i) => (
-                              <div
-                                key={i}
-                                className="p-3 text-center font-medium"
-                              >
-                                {week}
-                              </div>
-                            )
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Sprint rows */}
-                      {[
-                        {
-                          name: "Sprint 1: Design",
-                          start: 0,
-                          duration: 1.5,
-                          status: "completed",
-                          tasks: 8,
-                          completedTasks: 8,
-                        },
-                        {
-                          name: "Sprint 2: Frontend",
-                          start: 1,
-                          duration: 2,
-                          status: "in-progress",
-                          tasks: 12,
-                          completedTasks: 5,
-                        },
-                        {
-                          name: "Sprint 3: Backend",
-                          start: 1.5,
-                          duration: 2,
-                          status: "planned",
-                          tasks: 10,
-                          completedTasks: 0,
-                        },
-                        {
-                          name: "Sprint 4: Testing",
-                          start: 3,
-                          duration: 1,
-                          status: "planned",
-                          tasks: 6,
-                          completedTasks: 0,
-                        },
-                      ].map((sprint, i) => (
-                        <div
-                          key={i}
-                          className="flex border-b hover:bg-muted/50"
-                        >
-                          <div className="w-1/4 p-3">
-                            <div className="font-medium">{sprint.name}</div>
-                            <div className="text-xs text-muted-foreground">
-                              {sprint.completedTasks}/{sprint.tasks} tasks
-                            </div>
-                          </div>
-                          <div className="flex-1 relative py-3">
-                            <div
-                              className={`absolute h-6 rounded-md ${
-                                sprint.status === "completed"
-                                  ? "bg-emerald-500"
-                                  : sprint.status === "in-progress"
-                                  ? "bg-blue-500"
-                                  : "bg-slate-300 dark:bg-slate-700"
-                              }`}
-                              style={{
-                                left: `${sprint.start * 25}%`,
-                                width: `${sprint.duration * 25}%`,
-                              }}
-                            ></div>
-                          </div>
-                        </div>
-                      ))}
-
-                      {/* Milestones */}
-                      <div className="mt-8">
-                        <h4 className="font-medium mb-4">Key Milestones</h4>
-                        <div className="space-y-4">
-                          {[
-                            {
-                              name: "Design Approval",
-                              date: "Mar 05, 2025",
-                              status: "completed",
-                            },
-                            {
-                              name: "Alpha Release",
-                              date: "Mar 15, 2025",
-                              status: "in-progress",
-                            },
-                            {
-                              name: "Beta Testing",
-                              date: "Mar 22, 2025",
-                              status: "planned",
-                            },
-                            {
-                              name: "Production Launch",
-                              date: "Mar 30, 2025",
-                              status: "planned",
-                            },
-                          ].map((milestone, i) => (
-                            <div
-                              key={i}
-                              className="flex items-center gap-3 p-3 border rounded-lg"
-                            >
-                              {milestone.status === "completed" ? (
-                                <CheckCircle className="h-5 w-5 text-emerald-500" />
-                              ) : milestone.status === "in-progress" ? (
-                                <Clock className="h-5 w-5 text-blue-500" />
-                              ) : (
-                                <Circle className="h-5 w-5 text-muted-foreground" />
-                              )}
-                              <div>
-                                <p className="font-medium">{milestone.name}</p>
-                                <p className="text-sm text-muted-foreground">
-                                  {milestone.date}
-                                </p>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+                  <p className="text-muted-foreground">
+                    Timeline visualization coming soon...
+                  </p>
                 </CardContent>
               </Card>
             </TabsContent>
 
-            <TabsContent value="settings" className="mt-6">
+            <TabsContent value="ai" className="mt-6 space-y-6">
+              <div className="grid gap-6 md:grid-cols-2">
+                <OrchestratorWorkflow
+                  projectId={id}
+                  projectName={project.title}
+                />
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>AI Agents</CardTitle>
+                    <CardDescription>
+                      Specialized AI agents to help with your project
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="flex items-start gap-2">
+                      <div className="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-[#6E2CF4]">
+                        <Cpu className="h-3 w-3 text-white" />
+                      </div>
+                      <p className="text-sm">
+                        Project Manager Agent analyzes your project and
+                        coordinates other agents
+                      </p>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <div className="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-[#6E2CF4]">
+                        <Cpu className="h-3 w-3 text-white" />
+                      </div>
+                      <p className="text-sm">
+                        Task Creator Agent breaks down requirements into
+                        actionable tasks
+                      </p>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <div className="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-[#6E2CF4]">
+                        <Cpu className="h-3 w-3 text-white" />
+                      </div>
+                      <p className="text-sm">
+                        Worker Assignment Agent matches tasks to team members
+                        based on skills
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="settings" className="mt-6 space-y-6">
+              {/* Settings content */}
               <Card>
                 <CardHeader>
                   <CardTitle>Project Settings</CardTitle>
